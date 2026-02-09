@@ -23,19 +23,28 @@ class PathConfig:
     """File and directory path configuration."""
     base_dir: Path = field(default_factory=lambda: Path(__file__).parent.resolve())
     output_dir: Path = field(default=None)
-    news_output_dir: Path = field(default=None)
+    json_output_dir: Path = field(default=None)
+    csv_output_dir: Path = field(default=None)
+    news_output_dir: Path = field(default=None)  # Deprecated, use json_output_dir
     equities_json: Path = field(default=None)
     log_dir: Path = field(default=None)
+    enable_csv_output: bool = field(default=True)
     
     def __post_init__(self):
         self.output_dir = Path(os.getenv("OUTPUT_DIR", self.base_dir / "output"))
-        self.news_output_dir = Path(os.getenv("NEWS_OUTPUT_DIR", self.output_dir / "news"))
+        self.json_output_dir = Path(os.getenv("JSON_OUTPUT_DIR", self.output_dir / "json"))
+        self.csv_output_dir = Path(os.getenv("CSV_OUTPUT_DIR", self.output_dir / "csv"))
+        # Keep news_output_dir for backward compatibility, maps to json_output_dir
+        self.news_output_dir = Path(os.getenv("NEWS_OUTPUT_DIR", self.json_output_dir))
         self.equities_json = Path(os.getenv("EQUITIES_JSON", self.output_dir / "equities_india_latest.json"))
         self.log_dir = Path(os.getenv("LOG_DIR", self.base_dir / "logs"))
+        self.enable_csv_output = os.getenv("ENABLE_CSV_OUTPUT", str(self.enable_csv_output)).lower() in ("true", "1", "yes")
         
         # Create directories
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.news_output_dir.mkdir(parents=True, exist_ok=True)
+        self.json_output_dir.mkdir(parents=True, exist_ok=True)
+        if self.enable_csv_output:
+            self.csv_output_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
 

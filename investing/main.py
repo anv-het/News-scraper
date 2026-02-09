@@ -237,48 +237,56 @@ Examples:
 
 def main():
     """Main entry point."""
-    args = parse_args()
-    
-    # Reload config to pick up any changes
-    config = reload_config()
-    
-    # Override config with CLI args
-    if args.test:
-        config.scraper.test_mode = True
-    
-    if args.scheduled:
-        config.cron.enabled = True
-    
-    # Set up logging
-    log_level = "DEBUG" if args.debug else config.logging.level
-    setup_logger(
-        log_level=log_level,
-        log_to_file=config.logging.log_to_file,
-        log_dir=str(config.paths.log_dir)
-    )
-    
-    logger = get_logger("main")
-    logger.info(f"Starting Investing.com Scraper")
-    logger.info(f"Base directory: {config.paths.base_dir}")
-    logger.info(f"Output directory: {config.paths.output_dir}")
-    
-    # Create orchestrator
-    orchestrator = ScraperOrchestrator()
-    
-    # Determine what to run
-    if config.cron.enabled or args.scheduled:
-        orchestrator.run_scheduled()
-    else:
-        fetch_equities = not args.news_only
-        fetch_news = not args.equities_only
+    try:
+        args = parse_args()
         
-        success = orchestrator.run_once(
-            fetch_equities=fetch_equities,
-            fetch_news=fetch_news
+        # Reload config to pick up any changes
+        config = reload_config()
+        
+        # Override config with CLI args
+        if args.test:
+            config.scraper.test_mode = True
+        
+        if args.scheduled:
+            config.cron.enabled = True
+        
+        # Set up logging
+        log_level = "DEBUG" if args.debug else config.logging.level
+        setup_logger(
+            log_level=log_level,
+            log_to_file=config.logging.log_to_file,
+            log_dir=str(config.paths.log_dir)
         )
-        return 0 if success else 1
-    
-    return 0
+        
+        logger = get_logger("main")
+        logger.info(f"Starting Investing.com Scraper")
+        logger.info(f"Base directory: {config.paths.base_dir}")
+        logger.info(f"Output directory: {config.paths.output_dir}")
+        
+        # Create orchestrator
+        orchestrator = ScraperOrchestrator()
+        
+        # Determine what to run
+        if config.cron.enabled or args.scheduled:
+            orchestrator.run_scheduled()
+        else:
+            fetch_equities = not args.news_only
+            fetch_news = not args.equities_only
+            
+            success = orchestrator.run_once(
+                fetch_equities=fetch_equities,
+                fetch_news=fetch_news
+            )
+            return 0 if success else 1
+        
+        return 0
+        
+    except KeyboardInterrupt:
+        print("\n\nProcess stopped by user. Exiting...")
+        return 0
+    except Exception as e:
+        print(f"\n\nAn unexpected error occurred: {e}")
+        return 1
 
 
 if __name__ == "__main__":

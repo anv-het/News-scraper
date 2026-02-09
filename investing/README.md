@@ -26,7 +26,8 @@ investing/
 ├── .env.example         # Configuration template
 ├── output/              # Output directory
 │   ├── equities_india_latest.json
-│   └── news/            # News JSON files per equity
+│   ├── json/            # News JSON files per equity
+│   └── csv/             # News CSV files per equity
 └── logs/                # Log files
 ```
 
@@ -100,14 +101,16 @@ python fetch_news.py
 
 All settings can be configured via `.env` file or environment variables.
 
-### Path Settings
+### Path/Output Settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OUTPUT_DIR` | `./output` | Base output directory |
-| `NEWS_OUTPUT_DIR` | `./output/news` | News JSON output directory |
+| `JSON_OUTPUT_DIR` | `./output/json` | News JSON output directory |
+| `CSV_OUTPUT_DIR` | `./output/csv` | News CSV output directory |
 | `EQUITIES_JSON` | `./output/equities_india_latest.json` | Equities JSON path |
 | `LOG_DIR` | `./logs` | Log files directory |
+| `ENABLE_CSV_OUTPUT` | `true` | Enable CSV output in addition to JSON |
 
 ### Delay Settings
 
@@ -200,6 +203,25 @@ MongoDB storage works **in addition** to JSON files - both are saved when enable
   ]
 }
 ```
+
+### News CSV
+
+Each CSV file contains one row per article with these columns:
+
+| Column | Description |
+|--------|-------------|
+| `equity_id` | Equity ID from the API |
+| `equity_name` | Company name |
+| `equity_symbol` | Stock symbol |
+| `equity_url` | URL path for the equity |
+| `title` | Article title |
+| `link` | Full URL to the article |
+| `description` | Article description/summary |
+| `source` | News source name |
+| `source_url` | Source URL |
+| `date` | Article datetime (ISO format) |
+| `date_display` | Human-readable date |
+| `fetched_at` | When the article was scraped |
 
 ## Dependencies
 

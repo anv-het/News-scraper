@@ -243,16 +243,20 @@ class EquitiesFetcher:
 
 def main():
     """Main entry point for standalone execution."""
-    config = get_config()
-    setup_logger(
-        log_level=config.logging.level,
-        log_to_file=config.logging.log_to_file,
-        log_dir=str(config.paths.log_dir)
-    )
-    
-    fetcher = EquitiesFetcher()
-    success = fetcher.run()
-    return 0 if success else 1
+    try:
+        config = get_config()
+        setup_logger(
+            log_level=config.logging.level,
+            log_to_file=config.logging.log_to_file,
+            log_dir=str(config.paths.log_dir)
+        )
+        
+        fetcher = EquitiesFetcher()
+        success = fetcher.run()
+        return 0 if success else 1
+    except KeyboardInterrupt:
+        print("\n\nProcess stopped by user. Exiting...")
+        return 0
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ Fetches news articles for each equity from Investing.com.
 Uses curl_cffi and BeautifulSoup for scraping.
 """
 
+import csv
 import json
 import time
 import random
@@ -81,29 +82,45 @@ class NewsScraper:
             "Accept-Language": "en-US,en;q=0.9",
         }
         
-        try:
-            if HTTP_CLIENT == "curl_cffi":
-                response = requests.get(
-                    news_url,
-                    headers=headers,
-                    impersonate="chrome",
-                    timeout=self.config.delays.request_timeout
-                )
-            else:
-                response = requests.get(
-                    news_url,
-                    headers=headers,
-                    timeout=self.config.delays.request_timeout
-                )
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if HTTP_CLIENT == "curl_cffi":
+                    response = requests.get(
+                        news_url,
+                        headers=headers,
+                        impersonate="chrome",
+                        timeout=self.config.delays.request_timeout
+                    )
+                else:
+                    response = requests.get(
+                        news_url,
+                        headers=headers,
+                        timeout=self.config.delays.request_timeout
+                    )
+                
+                if response.status_code == 200:
+                    return response.text
+                elif response.status_code == 404:
+                    self.logger.warning(f"Page {page} not found (404)")
+                    return None
+                else:
+                    self.logger.warning(f"Page {page} returned status {response.status_code}. Retrying ({attempt+1}/{max_retries})...")
+                    # Exponential backoff for status errors
+                    sleep_time = 5 * (attempt + 1)
+                    if response.status_code in (429, 503):
+                        sleep_time *= 2  # Double wait for rate limits
+                    time.sleep(sleep_time)
             
-            if response.status_code == 200:
-                return response.text
-            else:
-                self.logger.warning(f"Page {page} returned status {response.status_code}")
-                return None
-        except Exception as e:
-            self.logger.error(f"Failed to fetch page {page}: {e}")
-            return None
+            except Exception as e:
+                self.logger.warning(f"Attempt {attempt+1} failed for page {page}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 * (attempt + 1))
+                else:
+                    self.logger.error(f"Failed to fetch page {page} after {max_retries} attempts: {e}")
+                    return None
+        
+        return None
     
     def parse_news_articles(self, html: str) -> List[Dict[str, Any]]:
         """
@@ -261,11 +278,12 @@ class NewsScraper:
         Returns:
             Path to saved file or None if error
         """
-        output_dir = self.config.paths.news_output_dir
+        output_dir = self.config.paths.json_output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
         
         equity_id = equity.get('Id', 'unknown')
         equity_symbol = equity.get('Symbol', 'unknown')
+        equity_name = equity.get('Name', '')
         
         # Sanitize filename
         safe_symbol = "".join(c if c.isalnum() else "_" for c in equity_symbol)
@@ -274,7 +292,7 @@ class NewsScraper:
         
         data = {
             'equity_id': equity_id,
-            'equity_name': equity.get('Name', ''),
+            'equity_name': equity_name,
             'equity_symbol': equity_symbol,
             'equity_url': equity.get('Url', ''),
             'fetched_at': datetime.now().isoformat(),
@@ -285,10 +303,76 @@ class NewsScraper:
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-            self.logger.debug(f"  Saved to: {filepath}")
+            self.logger.debug(f"  Saved JSON to: {filepath}")
+            
+            # Also save CSV if enabled
+            if self.config.paths.enable_csv_output:
+                self.save_news_csv(equity, articles)
+            
             return filepath
         except Exception as e:
-            self.logger.error(f"Failed to save news: {e}")
+            self.logger.error(f"Failed to save news JSON: {e}")
+            return None
+    
+    def save_news_csv(self, equity: Dict[str, Any], articles: List[Dict[str, Any]]) -> Optional[Path]:
+        """
+        Save news articles to CSV file.
+        
+        Args:
+            equity: Equity dict
+            articles: List of article dicts
+        
+        Returns:
+            Path to saved file or None if error
+        """
+        output_dir = self.config.paths.csv_output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        equity_id = equity.get('Id', 'unknown')
+        equity_symbol = equity.get('Symbol', 'unknown')
+        equity_name = equity.get('Name', '')
+        equity_url = equity.get('Url', '')
+        
+        # Sanitize filename
+        safe_symbol = "".join(c if c.isalnum() else "_" for c in equity_symbol)
+        filename = f"{equity_id}_{safe_symbol}.csv"
+        filepath = output_dir / filename
+        
+        # CSV columns
+        fieldnames = [
+            'equity_id', 'equity_name', 'equity_symbol', 'equity_url',
+            'title', 'link', 'description', 'source', 'source_url', 'date', 'date_display',
+            'fetched_at'
+        ]
+        
+        fetched_at = datetime.now().isoformat()
+        
+        try:
+            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+                writer.writeheader()
+                
+                for article in articles:
+                    row = {
+                        'equity_id': equity_id,
+                        'equity_name': equity_name,
+                        'equity_symbol': equity_symbol,
+                        'equity_url': equity_url,
+                        'title': article.get('title', ''),
+                        'link': article.get('link', ''),
+                        'description': article.get('description', ''),
+                        'source': article.get('source', ''),
+                        'source_url': article.get('source_url', ''),
+                        'date': article.get('date', ''),
+                        'date_display': article.get('date_display', ''),
+                        'fetched_at': fetched_at
+                    }
+                    writer.writerow(row)
+                
+            self.logger.debug(f"  Saved CSV to: {filepath}")
+            return filepath
+        except Exception as e:
+            self.logger.error(f"Failed to save news CSV: {e}")
             return None
     
     def save_to_mongodb(self, equity: Dict[str, Any], articles: List[Dict[str, Any]]) -> bool:
@@ -358,7 +442,7 @@ class NewsScraper:
         equity_symbol = equity.get('Symbol', 'unknown')
         safe_symbol = "".join(c if c.isalnum() else "_" for c in equity_symbol)
         filename = f"{equity_id}_{safe_symbol}.json"
-        filepath = self.config.paths.news_output_dir / filename
+        filepath = self.config.paths.json_output_dir / filename
         
         return filepath.exists()
     
@@ -436,16 +520,20 @@ class NewsScraper:
 
 def main():
     """Main entry point for standalone execution."""
-    config = get_config()
-    setup_logger(
-        log_level=config.logging.level,
-        log_to_file=config.logging.log_to_file,
-        log_dir=str(config.paths.log_dir)
-    )
-    
-    scraper = NewsScraper()
-    success = scraper.run()
-    return 0 if success else 1
+    try:
+        config = get_config()
+        setup_logger(
+            log_level=config.logging.level,
+            log_to_file=config.logging.log_to_file,
+            log_dir=str(config.paths.log_dir)
+        )
+        
+        scraper = NewsScraper()
+        success = scraper.run()
+        return 0 if success else 1
+    except KeyboardInterrupt:
+        print("\n\nProcess stopped by user. Exiting...")
+        return 0
 
 
 if __name__ == "__main__":

@@ -10,16 +10,17 @@ from pathlib import Path
 
 
 def setup_logger(
-    name: str = "investing_scraper",
+    name: str = None,
     log_level: str = "INFO",
     log_to_file: bool = True,
     log_dir: str = "logs"
 ) -> logging.Logger:
     """
     Set up and return a configured logger.
+    Configures the root logger if name is None, ensuring all modules log correctly.
     
     Args:
-        name: Logger name
+        name: Logger name (None for root logger)
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_to_file: Whether to also log to a file
         log_dir: Directory for log files
