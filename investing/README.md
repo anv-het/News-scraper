@@ -33,11 +33,12 @@ investing/
 
 ## Installation
 
+### Windows
+
 1. **Create virtual environment**:
    ```bash
    python -m venv .venv
-   .venv\Scripts\activate  # Windows
-   source .venv/bin/activate  # Linux/Mac
+   .venv\Scripts\activate
    ```
 
 2. **Install dependencies**:
@@ -47,8 +48,56 @@ investing/
 
 3. **Configure settings**:
    ```bash
-   cp .env.example .env
+   copy .env.example .env
    # Edit .env as needed
+   ```
+
+### Ubuntu/Linux
+
+1. **Install system dependencies** (required for curl_cffi):
+   ```bash
+   sudo apt update
+   sudo apt install -y python3-pip python3-venv libcurl4-openssl-dev libssl-dev
+   ```
+
+2. **Create virtual environment**:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Configure settings**:
+   ```bash
+   cp .env.example .env
+   # Edit .env as needed (relative paths work on both Windows and Ubuntu)
+   ```
+
+### macOS
+
+1. **Install system dependencies**:
+   ```bash
+   brew install openssl curl
+   ```
+
+2. **Create virtual environment**:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Configure settings**:
+   ```bash
+   cp .env.example .env
    ```
 
 ## Usage

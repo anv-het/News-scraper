@@ -30,14 +30,37 @@ class PathConfig:
     log_dir: Path = field(default=None)
     enable_csv_output: bool = field(default=True)
     
+    def _resolve_path(self, path_str: str, default: Path) -> Path:
+        """Resolve path relative to base_dir if not absolute."""
+        if not path_str:
+            return default
+        path = Path(path_str)
+        if not path.is_absolute():
+            # Resolve relative paths from base_dir (cross-platform)
+            path = (self.base_dir / path).resolve()
+        return path
+    
     def __post_init__(self):
-        self.output_dir = Path(os.getenv("OUTPUT_DIR", self.base_dir / "output"))
-        self.json_output_dir = Path(os.getenv("JSON_OUTPUT_DIR", self.output_dir / "json"))
-        self.csv_output_dir = Path(os.getenv("CSV_OUTPUT_DIR", self.output_dir / "csv"))
+        # Resolve all paths relative to base_dir for cross-platform compatibility
+        self.output_dir = self._resolve_path(
+            os.getenv("OUTPUT_DIR"), self.base_dir / "output"
+        )
+        self.json_output_dir = self._resolve_path(
+            os.getenv("JSON_OUTPUT_DIR"), self.output_dir / "json"
+        )
+        self.csv_output_dir = self._resolve_path(
+            os.getenv("CSV_OUTPUT_DIR"), self.output_dir / "csv"
+        )
         # Keep news_output_dir for backward compatibility, maps to json_output_dir
-        self.news_output_dir = Path(os.getenv("NEWS_OUTPUT_DIR", self.json_output_dir))
-        self.equities_json = Path(os.getenv("EQUITIES_JSON", self.output_dir / "equities_india_latest.json"))
-        self.log_dir = Path(os.getenv("LOG_DIR", self.base_dir / "logs"))
+        self.news_output_dir = self._resolve_path(
+            os.getenv("NEWS_OUTPUT_DIR"), self.json_output_dir
+        )
+        self.equities_json = self._resolve_path(
+            os.getenv("EQUITIES_JSON"), self.output_dir / "equities_india_latest.json"
+        )
+        self.log_dir = self._resolve_path(
+            os.getenv("LOG_DIR"), self.base_dir / "logs"
+        )
         self.enable_csv_output = os.getenv("ENABLE_CSV_OUTPUT", str(self.enable_csv_output)).lower() in ("true", "1", "yes")
         
         # Create directories

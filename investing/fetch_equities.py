@@ -5,6 +5,7 @@ and saves it as JSON.
 """
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -34,13 +35,14 @@ class EquitiesFetcher:
         self.config = get_config()
         self.logger = get_logger("equities_fetcher")
         
-    def fetch(self, country_id: int = 14, page_size: int = 8000) -> Optional[Dict[str, Any]]:
+    def fetch(self, country_id: int = 14, page_size: int = 8000, max_retries: int = 3) -> Optional[Dict[str, Any]]:
         """
         Fetch equities data from Investing.com API.
         
         Args:
             country_id: Country ID (14 = India)
             page_size: Number of results per page
+            max_retries: Maximum retry attempts for failed requests
         
         Returns:
             JSON data dict or None if error
@@ -63,43 +65,57 @@ class EquitiesFetcher:
         self.logger.info(f"Fetching equities data (country_id={country_id})...")
         self.logger.debug(f"Using HTTP client: {HTTP_CLIENT}")
         
-        try:
-            if HTTP_CLIENT == "curl_cffi":
-                response = requests.get(
-                    self.API_URL,
-                    params=params,
-                    headers=headers,
-                    timeout=self.config.delays.request_timeout,
-                    impersonate="chrome"
-                )
-            elif HTTP_CLIENT == "cloudscraper":
-                scraper = cloudscraper.create_scraper(
-                    browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
-                )
-                response = scraper.get(
-                    self.API_URL,
-                    params=params,
-                    headers=headers,
-                    timeout=self.config.delays.request_timeout
-                )
-            else:
-                response = requests.get(
-                    self.API_URL,
-                    params=params,
-                    headers=headers,
-                    timeout=self.config.delays.request_timeout
-                )
-            
-            response.raise_for_status()
-            data = response.json()
-            
-            count = len(data.get('data', []))
-            self.logger.info(f"Successfully fetched {count} equities")
-            return data
-            
-        except Exception as e:
-            self.logger.error(f"Failed to fetch equities: {e}")
-            return None
+        for attempt in range(max_retries):
+            try:
+                if HTTP_CLIENT == "curl_cffi":
+                    response = requests.get(
+                        self.API_URL,
+                        params=params,
+                        headers=headers,
+                        timeout=self.config.delays.request_timeout,
+                        impersonate="chrome"
+                    )
+                elif HTTP_CLIENT == "cloudscraper":
+                    scraper = cloudscraper.create_scraper(
+                        browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
+                    )
+                    response = scraper.get(
+                        self.API_URL,
+                        params=params,
+                        headers=headers,
+                        timeout=self.config.delays.request_timeout
+                    )
+                else:
+                    response = requests.get(
+                        self.API_URL,
+                        params=params,
+                        headers=headers,
+                        timeout=self.config.delays.request_timeout
+                    )
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                count = len(data.get('data', []))
+                self.logger.info(f"Successfully fetched {count} equities")
+                return data
+                
+            except Exception as e:
+                error_msg = str(e)
+                is_timeout = "504" in error_msg or "timeout" in error_msg.lower() or "502" in error_msg
+                
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 15s, 30s, 45s (longer for API calls)
+                    sleep_time = 15 * (attempt + 1)
+                    if is_timeout:
+                        sleep_time *= 2  # Double wait for timeouts
+                    self.logger.warning(f"Request failed: {e}. Retrying in {sleep_time}s ({attempt + 1}/{max_retries})...")
+                    time.sleep(sleep_time)
+                else:
+                    self.logger.error(f"Failed to fetch equities after {max_retries} attempts: {e}")
+                    return None
+        
+        return None
     
     def save(self, data: Dict[str, Any], output_path: Optional[Path] = None) -> Optional[Path]:
         """
