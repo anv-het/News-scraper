@@ -1,0 +1,142 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║              NEWS SOURCES CONFIGURATION                             ║
+# ║  Enable/disable sources, set poll intervals, proxy usage, etc.      ║
+# ║  To add a new source:                                               ║
+# ║    1. Create sites_scrapers/<name>.py extending BaseScraper         ║
+# ║    2. Add entry below with same name                                ║
+# ║    3. Restart main.py                                               ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+sources:
+  groww:
+    enabled: true
+    display_name: "Groww"
+    poll_interval: [2, 4]       # [min, max] in seconds
+    use_proxy: false
+    description: "Stock market news from Groww API"
+
+  livemint:
+    enabled: true
+    display_name: "LiveMint"
+    poll_interval: [2, 3]       # [min, max] in seconds
+    use_proxy: false
+    description: "Financial news from LiveMint API + RSS feeds"
+
+  scanx:
+    enabled: true
+    display_name: "ScanX"
+    poll_interval: [3, 5]      # [min, max] in seconds
+    use_proxy: false
+    description: "Stock market news from ScanX (Angular SSR)"
+
+  tradingview:
+    enabled: true
+    display_name: "TradingView"
+    poll_interval: [2, 4]      # [min, max] in seconds
+    use_proxy: false
+    description: "India financial news from TradingView API"
+
+  zerodha:
+    enabled: false
+    display_name: "Zerodha Pulse"
+    poll_interval: [3, 5]      # [min, max] in seconds
+    use_proxy: false
+    description: "News aggregator from Zerodha Pulse (HTML scrape)"
+
+  stockedge:
+    enabled: false
+    display_name: "StockEdge"
+    poll_interval: [1, 2]       # [min, max] in seconds — poll fast to catch items ASAP
+    use_proxy: false
+    description: "Latest news from StockEdge Daily Dashboard API (Note: StockEdge backend has inherent 30-60 min curation delay)"
+
+  moneycontrol:
+    enabled: true
+    display_name: "MoneyControl"
+    poll_interval: [5, 10]      # [min, max] in seconds — HTML scrape, be polite
+    use_proxy: false
+    description: "Market news from MoneyControl (HTML scrape)"
+
+  angelone:
+    enabled: false
+    display_name: "Angel One"
+    poll_interval: [5, 8]       # [min, max] in seconds — HTML + sitemap
+    use_proxy: false
+    description: "Stock market updates from Angel One news sitemap"
+
+  cnbctv18:
+    enabled: true
+    display_name: "CNBC TV18"
+    poll_interval: [5, 10]      # [min, max] in seconds — public API
+    use_proxy: false
+    description: "Latest news from CNBC TV18 India API"
+
+  reuters:
+    enabled: true
+    display_name: "Reuters"
+    poll_interval: [8, 15]      # [min, max] in seconds — rotates sitemap pages
+    use_proxy: false             # Sitemap endpoint is not behind DataDome
+    description: "Global news from Reuters via Arc outbound news sitemap"
+
+  cnbc:
+    enabled: true
+    display_name: "CNBC"
+    poll_interval: [8, 15]      # [min, max] in seconds — RSS feed
+    use_proxy: false
+    description: "World markets news from CNBC RSS feed"
+
+  bbc:
+    enabled: true
+    display_name: "BBC News"
+    poll_interval: [8, 15]      # [min, max] in seconds — RSS feeds (top/world/business)
+    use_proxy: false
+    description: "Global news from BBC RSS feeds"
+
+  economictimes:
+    enabled: true
+    display_name: "Economic Times"
+    poll_interval: [3, 6]       # [min, max] in seconds — parallel RSS fetch
+    use_proxy: false
+    description: "India financial news from Economic Times RSS feeds (parallel fetch)"
+
+  zeebusiness:
+    enabled: true
+    display_name: "Zee Business"
+    poll_interval: [8, 15]      # [min, max] in seconds — sitemap with XML recovery
+    use_proxy: false
+    description: "Latest news from Zee Business news sitemap"
+
+  rediff:
+    enabled: false
+    display_name: "Rediff"
+    poll_interval: [5, 10]      # [min, max] in seconds — HTML scrape
+    use_proxy: false
+    description: "India news from Rediff.com (HTML scrape)"
+
+  etnow:
+    enabled: true
+    display_name: "ET Now"
+    poll_interval: [5, 25]       # [min, max] in seconds — News sitemap (fast)
+    use_proxy: false
+    description: "Market news from ET Now (News sitemap + Next.js fallback)"
+
+  businessstandard:
+    enabled: true
+    display_name: "Business Standard"
+    poll_interval: [5, 10]      # [min, max] in seconds — Next.js __NEXT_DATA__
+    use_proxy: false
+    description: "Latest news from Business Standard (Next.js SSR extraction)"
+
+  ndtv:
+    enabled: true
+    display_name: "NDTV"
+    poll_interval: [3, 6]       # [min, max] in seconds — FeedBurner RSS
+    use_proxy: false
+    description: "Latest news from NDTV (FeedBurner RSS + HTML fallback)"
+
+  timesofindia:
+    enabled: true
+    display_name: "Times of India"
+    poll_interval: [5, 10]      # [min, max] in seconds — HTML scrape
+    use_proxy: false
+    description: "Top stories from Times of India homepage"

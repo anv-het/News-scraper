@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News Scrapper Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">📡</span>
+                <h1>News Scrapper</h1>
+            </div>
+            <span class="badge live-badge">● LIVE</span>
+        </div>
+        <div class="header-right">
+            <div class="clock" id="clock"></div>
+            <button class="theme-toggle" id="themeToggle" title="Toggle theme">🌙</button>
+            <button class="sidebar-toggle-btn" id="sidebarToggle" title="Toggle Sources Panel">
+                <span>Sources</span>
+                <span class="sidebar-arrow" id="sidebarArrow">◀</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Layout wrapper -->
+    <div class="layout" id="layout">
+        <!-- Main content -->
+        <div class="main-content" id="mainContent">
+            <!-- Stats Bar -->
+            <section class="stats-bar" id="statsBar">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalArticles">—</div>
+                    <div class="stat-label">Total Articles</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="todayArticles">—</div>
+                    <div class="stat-label">Today</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="activeSources">—</div>
+                    <div class="stat-label">Active Sources</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="uptime">—</div>
+                    <div class="stat-label">Uptime</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="lastUpdated">—</div>
+                    <div class="stat-label">Last Updated</div>
+                </div>
+            </section>
+
+            <!-- Controls -->
+            <section class="controls">
+                <div class="search-container">
+                    <input type="text" id="searchInput" class="search-input" placeholder="Search news...">
+                </div>
+                <div class="filters">
+                    <div class="active-source-display">
+                        <span class="active-source-label" id="activeSourceLabel">All Sources</span>
+                    </div>
+                    <div class="date-controls">
+                        <input type="date" id="dateFilter" class="date-input">
+                        <select id="sortSelect" class="sort-select">
+                            <option value="newest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="source">By Source</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+            <!-- News Feed -->
+            <main class="news-feed" id="newsFeed">
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Loading news...</p>
+                </div>
+            </main>
+
+            <!-- Footer -->
+            <footer class="footer">
+                <p>News Scrapper Dashboard — Collecting news 24/7 from <span id="sourceCount">0</span> sources</p>
+            </footer>
+        </div>
+
+        <!-- Right Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>📡 Sources</h2>
+                <button class="sidebar-close-btn" id="sidebarClose" title="Close">✕</button>
+            </div>
+            <div class="sidebar-filter">
+                <input type="text" id="sidebarFilter" class="sidebar-filter-input" placeholder="Filter sources...">
+            </div>
+            <div class="sidebar-sources-scroll">
+                <div class="sidebar-sources" id="sidebarSources">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+            <div class="sidebar-footer">
+                <span id="sidebarSourceCount">0</span> sources active
+            </div>
+        </aside>
+    </div>
+
+    <script src="/app-config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
