@@ -1,0 +1,29 @@
+# BRIGHT DATA PROXIES (15) - 1GB per IP per month
+# Format: host:port:username:password
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-185.150.85.170:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-45.154.194.148:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-104.244.83.140:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-58.97.241.46:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-103.250.82.245:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-83.229.13.167:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-80.240.120.78:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-121.91.189.75:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-176.119.9.105:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-185.125.193.152:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-119.13.224.187:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-154.30.98.10:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-209.242.213.180:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-176.53.216.91:g923a22jzvih
+brd.superproxy.io:33335:brd-customer-hl_e8b2ea42-zone-freemium-ip-62.241.59.134:g923a22jzvih
+
+# RESIDENTIAL PROXIES (10) - 1GB per IP per month
+31.59.20.176:6754:bcxknvbb:p2pf394yp5de
+23.95.150.145:6114:bcxknvbb:p2pf394yp5de
+198.23.239.134:6540:bcxknvbb:p2pf394yp5de
+45.38.107.97:6014:bcxknvbb:p2pf394yp5de
+107.172.163.27:6543:bcxknvbb:p2pf394yp5de
+198.105.121.200:6462:bcxknvbb:p2pf394yp5de
+64.137.96.74:6641:bcxknvbb:p2pf394yp5de
+216.10.27.159:6837:bcxknvbb:p2pf394yp5de
+142.111.67.146:5611:bcxknvbb:p2pf394yp5de
+194.39.32.164:6461:bcxknvbb:p2pf394yp5de
