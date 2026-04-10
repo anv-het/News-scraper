@@ -11,17 +11,6 @@ import re
 from .base import BaseScraper
 from utils.time_utils import parse_iso_datetime
 
-SUBCAT_TO_SLUG = {
-    "corporate_action": "corporate-actions",
-    "normal_news": "stocks",
-    "order&deals": "orders-deals",
-    "markets": "markets",
-    "results": "earnings",
-    "ipo": "ipo",
-    "global": "global",
-    "union_budget": "budget",
-}
-
 
 class ScanxScraper(BaseScraper):
     name = "scanx"
@@ -51,11 +40,13 @@ class ScanxScraper(BaseScraper):
         if etag:
             self._last_etag = etag
 
+        href_by_id = self._extract_html_hrefs_by_id(resp.text)
+
         ng_state = self._extract_ng_state(resp.text)
         if not ng_state:
             return []
 
-        return self._extract_articles(ng_state)
+        return self._extract_articles(ng_state, href_by_id)
 
     def _extract_ng_state(self, html: str) -> dict | None:
         match = re.search(
@@ -75,7 +66,7 @@ class ScanxScraper(BaseScraper):
         except json.JSONDecodeError:
             return None
 
-    def _extract_articles(self, ng_state: dict) -> list[dict]:
+    def _extract_articles(self, ng_state: dict, href_by_id: dict[str, str]) -> list[dict]:
         sections_data = None
         for v in ng_state.values():
             if not isinstance(v, dict):
@@ -109,7 +100,7 @@ class ScanxScraper(BaseScraper):
 
                 summary = article.get("summary", "").strip()
                 pubdate = article.get("pubdate", "")
-                news_url = self._build_url(article)
+                news_url = href_by_id.get(aid_str) or self._extract_exact_url(article)
                 dt = parse_iso_datetime(pubdate)
 
                 # Extract image if available
@@ -125,11 +116,49 @@ class ScanxScraper(BaseScraper):
         return new_items
 
     @staticmethod
-    def _build_url(article: dict) -> str:
-        subcat = article.get("subcategory", "")
-        slug = article.get("slug", "")
-        aid = article.get("id", "")
-        path_seg = SUBCAT_TO_SLUG.get(subcat, subcat)
-        if slug and aid:
-            return f"https://scanx.trade/stock-market-news/{path_seg}/{slug}/{aid}"
+    def _extract_html_hrefs_by_id(html: str) -> dict[str, str]:
+        href_by_id: dict[str, str] = {}
+        pattern = re.compile(
+            r'href=["\'](?P<href>/stock-market-news/[^"\']*?/(?P<id>\d+))["\']',
+            re.IGNORECASE,
+        )
+
+        for match in pattern.finditer(html):
+            aid = match.group("id")
+            href = match.group("href").strip()
+            if not aid or not href:
+                continue
+            href_by_id[aid] = f"https://scanx.trade{href}"
+
+        return href_by_id
+
+    @staticmethod
+    def _extract_exact_url(article: dict) -> str:
+        # Use only URL fields returned by source payload; never reconstruct from slug/id.
+        url_keys = (
+            "href",
+            "url",
+            "article_url",
+            "news_url",
+            "link",
+            "article_link",
+            "detail_url",
+            "canonical_url",
+            "permalink",
+            "weburl",
+            "web_url",
+        )
+
+        for key in url_keys:
+            raw = article.get(key)
+            if not isinstance(raw, str):
+                continue
+            raw = raw.strip()
+            if not raw:
+                continue
+            if raw.startswith("http://") or raw.startswith("https://"):
+                return raw
+            if raw.startswith("/"):
+                return f"https://scanx.trade{raw}"
+
         return ""

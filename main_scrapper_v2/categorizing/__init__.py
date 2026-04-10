@@ -10,10 +10,12 @@ Components:
 
 from categorizing.top_news import TopNewManager
 from categorizing.semantic_scoring import SemanticScorer, AsyncSemanticWorker, MiniLMEmbedder
+from categorizing.realtime_impact import RealTimeImpactScorer
 
 __all__ = [
     "TopNewManager",
-  "SemanticScorer",
-  "AsyncSemanticWorker",
-  "MiniLMEmbedder",
+    "SemanticScorer",
+    "AsyncSemanticWorker",
+    "MiniLMEmbedder",
+    "RealTimeImpactScorer",
 ]

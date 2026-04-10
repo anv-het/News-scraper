@@ -85,13 +85,21 @@ def load_config() -> dict:
             "Chrome/145.0.0.0 Safari/537.36",
         ),
         "semantic_enabled": os.getenv("SEMANTIC_ENABLED", "true").lower() == "true",
-        "semantic_batch_size": int(os.getenv("SEMANTIC_BATCH_SIZE", "32")),
-        "semantic_batch_timeout_ms": int(os.getenv("SEMANTIC_BATCH_TIMEOUT_MS", "25")),
-        "semantic_queue_maxsize": int(os.getenv("SEMANTIC_QUEUE_MAXSIZE", "20000")),
         "semantic_cache_size": int(os.getenv("SEMANTIC_CACHE_SIZE", "20000")),
-        "semantic_worker_threads": int(os.getenv("SEMANTIC_WORKER_THREADS", "1")),
-        "semantic_model": os.getenv("SEMANTIC_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
+        "semantic_model": os.getenv("SEMANTIC_MODEL", "ProsusAI/finbert"),
+        "semantic_fallback_model": os.getenv("SEMANTIC_FALLBACK_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
         "semantic_candidate_limit": int(os.getenv("SEMANTIC_CANDIDATE_LIMIT", "2500")),
+        "semantic_text_chars": int(os.getenv("SEMANTIC_TEXT_CHARS", "420")),
+        "ner_text_chars": int(os.getenv("NER_TEXT_CHARS", "240")),
+        "spacy_enabled": os.getenv("SPACY_ENABLED", "true").lower() == "true",
+        "spacy_model": os.getenv("SPACY_MODEL", "en_core_web_sm"),
+        "recency_decay_hours": int(os.getenv("RECENCY_DECAY_HOURS", "18")),
+        "topnews_dedup_top_n": os.getenv("TOPNEWS_DEDUP_TOP_N", "true").lower() == "true",
+        "rank_weight_semantic": float(os.getenv("RANK_WEIGHT_SEMANTIC", "0.34")),
+        "rank_weight_entity": float(os.getenv("RANK_WEIGHT_ENTITY", "0.20")),
+        "rank_weight_event": float(os.getenv("RANK_WEIGHT_EVENT", "0.23")),
+        "rank_weight_recency": float(os.getenv("RANK_WEIGHT_RECENCY", "0.15")),
+        "rank_weight_source": float(os.getenv("RANK_WEIGHT_SOURCE", "0.08")),
     }
 
     # Load sites.yaml
@@ -653,18 +661,32 @@ def main():
     # Initialize top news manager
     semantic_config = {
         "enabled": config["semantic_enabled"],
-        "batch_size": config["semantic_batch_size"],
-        "batch_timeout_ms": config["semantic_batch_timeout_ms"],
-        "queue_maxsize": config["semantic_queue_maxsize"],
         "cache_size": config["semantic_cache_size"],
-        "worker_threads": config["semantic_worker_threads"],
         "model_name": config["semantic_model"],
+        "fallback_model_name": config["semantic_fallback_model"],
+        "max_length": 96,
+        "semantic_text_chars": config["semantic_text_chars"],
+        "ner_text_chars": config["ner_text_chars"],
+        "spacy_enabled": config["spacy_enabled"],
+        "spacy_model": config["spacy_model"],
+        "recency_decay_hours": config["recency_decay_hours"],
+        "dedup_top_n": config["topnews_dedup_top_n"],
+        "heuristic_boost": True,
         "candidate_limit": config["semantic_candidate_limit"],
+    }
+
+    ranking_weights = {
+        "semantic": config["rank_weight_semantic"],
+        "entity": config["rank_weight_entity"],
+        "event": config["rank_weight_event"],
+        "recency": config["rank_weight_recency"],
+        "source": config["rank_weight_source"],
     }
 
     top_news_mgr = get_top_news_manager(
         data_dir=config["data_dir"],
         source_weights=source_weights,
+        ranking_weights=ranking_weights,
         semantic_config=semantic_config,
     )
 

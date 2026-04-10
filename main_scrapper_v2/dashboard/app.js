@@ -23,7 +23,7 @@ const API_BASE = (() => {
     return 'http://localhost';
 })();
 const REFRESH_INTERVAL = 10_000;  // 10 seconds
-const TOP_NEWS_REFRESH_INTERVAL = 2_000; // 2 seconds for live top-news updates
+const TOP_NEWS_REFRESH_INTERVAL = 2_000;
 const CLOCK_INTERVAL = 1_000;
 
 let allNews = [];
@@ -134,7 +134,7 @@ function initEventListeners() {
     document.getElementById('dateFilter').addEventListener('change', fetchNews);
     document.getElementById('sortSelect').addEventListener('change', (e) => {
         currentSort = e.target.value;
-        renderNews();
+        onFilterChange();
     });
 }
 
@@ -151,44 +151,43 @@ function setTodayDate() {
 
 async function fetchAll() {
     await Promise.all([
-        fetchStats(),
         fetchSources(),
+        fetchStats(),
         fetchNews(),
         fetchTopNews({ renderIfVisible: isTopNewsMode }),
     ]);
-    buildFuseIndex();
-}
-
-async function fetchStats() {
-    try {
-        const resp = await fetch(`${API_BASE}/api/stats`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        statsData = await resp.json();
-        renderStats();
-    } catch (e) {
-        console.error('Failed to fetch stats:', e);
-    }
+    renderSidebar();
 }
 
 async function fetchSources() {
     try {
         const resp = await fetch(`${API_BASE}/api/sources`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         sources = await resp.json();
-        renderSidebar();
-    } catch (e) {
-        console.error('Failed to fetch sources:', e);
-    }
+        document.getElementById('sourceCount').textContent = sources.filter(s => s.enabled).length;
+        document.getElementById('sidebarSourceCount').textContent = sources.filter(s => s.enabled).length;
+    } catch (e) { console.error('Failed to fetch sources:', e); }
+}
+
+async function fetchStats() {
+    try {
+        const resp = await fetch(`${API_BASE}/api/stats`);
+        statsData = await resp.json();
+        renderStats();
+    } catch (e) { console.error('Failed to fetch stats:', e); }
 }
 
 async function fetchNews() {
-    const dateVal = document.getElementById('dateFilter').value || '';
-    const url = `${API_BASE}/api/news?limit=500${dateVal ? `&date=${dateVal}` : ''}`;
+    const date = document.getElementById('dateFilter').value;
+    const sourceParam = currentSource !== 'all' ? `&source=${currentSource}` : '';
     try {
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const resp = await fetch(`${API_BASE}/api/news?date=${date}&limit=1000${sourceParam}`);
         allNews = await resp.json();
-        renderNews();
+        buildFuseIndex();
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (!isTopNewsMode) {
+            renderNews();
+        }
     } catch (e) {
         console.error('Failed to fetch news:', e);
         const loadingEl = document.getElementById('loading');
@@ -200,16 +199,14 @@ async function fetchTopNews(options = {}) {
     const { renderIfVisible = false } = options;
     try {
         const resp = await fetch(`${API_BASE}/api/top-news`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const incoming = await resp.json();
-        const nextFingerprint = fingerprintTopNews(incoming);
-        const changed = nextFingerprint !== topNewsFingerprint;
+        topNews = await resp.json();
 
-        topNews = incoming;
+        const nextFingerprint = fingerprintTopNews(topNews);
+        const changed = nextFingerprint !== topNewsFingerprint;
         topNewsFingerprint = nextFingerprint;
 
         if (renderIfVisible && isTopNewsMode && changed) {
-            renderTopNews(topNews);
+            renderTopNews();
         }
     } catch (e) {
         console.error('Failed to fetch top news:', e);
@@ -262,40 +259,66 @@ function renderSidebar() {
                     <span class="sidebar-source-name">🌐 All Sources</span>
                 </div>
             </div>
-            <button class="sidebar-top-news-btn ${isTopNewsMode ? 'active' : ''}" type="button" data-action="top-news" title="Show Top 100 News">⭐ Top News</button>
-        </div>`;
+            <button class="sidebar-top-news-btn ${isTopNewsMode ? 'active' : ''}" type="button" data-action="top-news">⭐ Top News</button>
+        </div>
+    `;
 
     for (const src of sources) {
-        if (filterText && !src.name.toLowerCase().includes(filterText) && !src.display_name.toLowerCase().includes(filterText)) {
-            continue;
+        if (!src.enabled) continue;
+        if (filterText && !src.display_name.toLowerCase().includes(filterText) && !src.name.includes(filterText)) continue;
+
+        const w = workers[src.name] || {};
+        const st = srcStats[src.name] || {};
+        const isActive = !isTopNewsMode && currentSource === src.name;
+        const status = w.status || 'unknown';
+        const sourceUrl = SOURCE_LINKS[src.name] || '';
+        const sourceNameHtml = sourceUrl
+            ? `<a class="sidebar-source-name sidebar-source-link" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(src.display_name)}</a>`
+            : `<span class="sidebar-source-name">${escapeHtml(src.display_name)}</span>`;
+
+        let errorHtml = '';
+        if (w.last_error) {
+            const errorTime = w.last_error_time ? new Date(w.last_error_time * 1000).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '?';
+            errorHtml = `<div class="sidebar-source-error">⚠ ${escapeHtml(w.last_error.substring(0, 80))} (${errorTime})</div>`;
         }
 
-        const isActive = currentSource === src.name;
-        const worker = workers[src.name];
-        const status = worker?.status || 'unknown';
-        const statusColor = status === 'healthy' ? 'green' : status === 'blocked' ? 'red' : 'yellow';
+        let emptyHtml = '';
+        // if (w.consecutive_empty && w.consecutive_empty >= 10) {
+        //     emptyHtml = `<div class="sidebar-source-error">⏳ No data for ${w.consecutive_empty} fetches</div>`;
+        // }
 
         html += `
         <div class="sidebar-source-card ${isActive ? 'active' : ''}" data-source="${src.name}">
             <div class="sidebar-source-header">
-                <span class="sidebar-source-name">${escapeHtml(src.display_name)}</span>
-                <span class="source-status status-${statusColor}" title="${status}">●</span>
+                ${sourceNameHtml}
+                <span class="health-status ${status}">${status}</span>
             </div>
-            <div class="sidebar-source-meta">
-                <span>${worker?.total_fetched || 0} articles</span>
+            <div class="sidebar-source-stats">
+                <span>Total: ${(st.total_articles || 0).toLocaleString()}</span>
+                <span>Today: ${(st.today_articles || 0).toLocaleString()}</span>
             </div>
+            <div class="sidebar-source-detail">
+                <span>Poll: ${w.poll_interval ? w.poll_interval[0] + '-' + w.poll_interval[1] + 's' : '?'}</span>
+                <span>Errors: ${w.consecutive_errors || 0}</span>
+            </div>
+            ${w.is_blocked ? '<div class="sidebar-source-blocked">⚠ BLOCKED</div>' : ''}
+            ${errorHtml}
+            ${emptyHtml}
+            <div class="sidebar-source-desc">${escapeHtml(src.description || '')}</div>
         </div>`;
     }
 
     container.innerHTML = html;
 
-    // Attach event listeners
+    // Click handlers
     container.querySelectorAll('.sidebar-source-card').forEach(card => {
         card.addEventListener('click', () => {
             currentSource = card.dataset.source;
             setTopNewsMode(false);
+            document.getElementById('activeSourceLabel').textContent =
+                currentSource === 'all' ? 'All Sources' : getDisplayName(currentSource);
             renderSidebar();
-            renderNews();
+            fetchNews();
         });
     });
 
@@ -305,33 +328,62 @@ function renderSidebar() {
         });
     });
 
-    document.getElementById('sidebarSourceCount').textContent = sources.length;
+    container.querySelectorAll('.sidebar-source-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+    });
+}
+
+function renderSourceTabs() {
+    // Legacy: no-op, superseded by sidebar
 }
 
 function renderStats() {
-    const stats = statsData || {};
-    const uptime = stats.uptime_seconds || 0;
-    const updated = new Date().toLocaleTimeString('en-IN');
+    if (!statsData) return;
 
-    document.getElementById('totalArticles').textContent = stats.total_articles || '—';
-    document.getElementById('todayArticles').textContent = stats.today_articles || 0;
-    document.getElementById('activeSources').textContent = Object.keys(stats.workers || {}).length;
-    document.getElementById('uptime').textContent = formatUptime(uptime);
-    document.getElementById('lastUpdated').textContent = updated;
+    document.getElementById('totalArticles').textContent = (statsData.total_articles || 0).toLocaleString();
 
-    const activeSourceLabel = isTopNewsMode
-        ? '⭐ Top News'
-        : currentSource === 'all'
-            ? 'All Sources'
-            : sources.find(s => s.name === currentSource)?.display_name || currentSource;
-    document.getElementById('activeSourceLabel').textContent = activeSourceLabel;
+    let todayTotal = 0;
+    const srcStats = statsData.sources || {};
+    for (const key in srcStats) {
+        todayTotal += srcStats[key].today_articles || 0;
+    }
+    document.getElementById('todayArticles').textContent = todayTotal.toLocaleString();
+
+    const workers = statsData.workers || {};
+    const activeCount = Object.values(workers).filter(w => w.status === 'healthy').length;
+    const totalSources = Object.keys(workers).length;
+    document.getElementById('activeSources').textContent = `${activeCount}/${totalSources}`;
+
+    if (statsData.uptime_seconds) {
+        document.getElementById('uptime').textContent = formatUptime(statsData.uptime_seconds);
+    }
+
+    const now = new Date();
+    const istStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+    document.getElementById('lastUpdated').textContent = istStr;
+
+    const activeLabel = isTopNewsMode
+        ? 'Top News'
+        : (currentSource === 'all' ? 'All Sources' : getDisplayName(currentSource));
+    document.getElementById('activeSourceLabel').textContent = activeLabel;
+}
+
+function renderHealthCards() {
+    // Legacy: no-op, superseded by sidebar
 }
 
 function renderNews() {
-    const container = document.getElementById('newsFeed');
-    const items = getFilteredNews();
+    if (isTopNewsMode) return;
 
-    if (!items || items.length === 0) {
+    const container = document.getElementById('newsFeed');
+    let items = getFilteredNews();
+
+    // Sort
+    items = sortNews(items);
+
+    if (items.length === 0) {
         container.innerHTML = '<div class="no-results">No news articles found.</div>';
         return;
     }
@@ -377,46 +429,45 @@ function renderNews() {
     container.innerHTML = html;
 }
 
-function renderTopNews(items) {
+function renderTopNews() {
     const container = document.getElementById('topNewsFeed');
+    if (!container) return;
 
-    if (!items || items.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">No top news available</p>';
+    let items = getFilteredTopNews();
+    items = sortNews(items);
+
+    if (items.length === 0) {
+        container.innerHTML = '<div class="no-results">No top news articles found.</div>';
         return;
     }
 
     let html = '';
     for (const item of items) {
-        const src = item.source || 'Unknown';
-        const srcDisplay = getDisplayName(src) || src || 'News Source';
-        const timeAgo = computeTimeAgo(item);
-        const url = item.news_url || '#';
+        const srcClass = (item.source || '').toLowerCase();
+        const sourceLabel = getDisplayName(item.source || '');
         const title = item.news_caption || 'Untitled';
+        const url = item.news_url || '#';
         const imageUrl = item.image_url || '';
+        const timeAgo = computeTimeAgo(item);
 
-        const thumbHtml = imageUrl
-            ? `<div class="top-news-card-thumb">
-                   <a href="${escapeHtml(url)}" target="_blank" rel="noopener">
-                       <img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(srcDisplay)}" loading="lazy" onerror="this.parentElement.parentElement.style.display='none'">
-                   </a>
-               </div>`
+        const imageHtml = imageUrl
+            ? `<div class="top-news-card-thumb"><a href="${escapeHtml(url)}" target="_blank" rel="noopener"><img src="${escapeHtml(imageUrl)}" alt="" loading="lazy" onerror="this.parentElement.parentElement.style.display='none'"></a></div>`
             : '';
 
         html += `
-        <article class="top-news-card ${imageUrl ? 'has-thumbnail' : ''}">
-            ${thumbHtml}
+        <article class="top-news-card">
+            ${imageHtml}
             <div class="top-news-card-content">
-                <div class="top-news-card-title">
-                    <a href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${escapeHtml(title)}">${escapeHtml(title)}</a>
-                </div>
+                <div class="top-news-card-title"><a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(title)}</a></div>
                 <div class="top-news-card-meta">
-                    <span class="top-news-source-badge source-${src.toLowerCase()}">${srcDisplay}</span>
+                    <span class="top-news-source-badge source-${srcClass}">${escapeHtml(sourceLabel)}</span>
                     <span class="meta-separator">•</span>
-                    <span class="top-news-time">⏱ ${timeAgo}</span>
+                    <span>⏱ ${timeAgo}</span>
                 </div>
             </div>
         </article>`;
     }
+
     container.innerHTML = html;
 }
 
@@ -427,27 +478,22 @@ function getFilteredNews() {
 
     let items = [...allNews];
 
-    // Source filter
+    // Source filter (already applied in API call, but double-check)
     if (currentSource !== 'all') {
         items = items.filter(n => n.source === currentSource);
     }
 
-    // Search - simple string matching
-    if (query) {
-        const queryLower = query.toLowerCase();
-        items = items.filter(n => {
-            const caption = (n.news_caption || '').toLowerCase();
-            const summary = (n.news_summary || '').toLowerCase();
-            const source = (n.source || '').toLowerCase();
-            const url = (n.news_url || '').toLowerCase();
-            return caption.includes(queryLower) ||
-                   summary.includes(queryLower) ||
-                   source.includes(queryLower) ||
-                   url.includes(queryLower);
-        });
+    // Search
+    if (query && fuseInstance) {
+        const results = fuseInstance.search(query);
+        items = results.map(r => r.item);
+        // If source filtered
+        if (currentSource !== 'all') {
+            items = items.filter(n => n.source === currentSource);
+        }
     }
 
-    return sortNews(items);
+    return items;
 }
 
 function sortNews(items) {
@@ -465,7 +511,7 @@ function sortNews(items) {
 
 function onFilterChange() {
     if (isTopNewsMode) {
-        renderTopNews(topNews);
+        renderTopNews();
         return;
     }
     renderNews();
@@ -475,35 +521,45 @@ function setTopNewsMode(enabled) {
     isTopNewsMode = Boolean(enabled);
 
     const topSection = document.getElementById('topNewsSection');
-    const mainFeed = document.getElementById('newsFeed');
-    topSection.style.display = isTopNewsMode ? 'block' : 'none';
-    mainFeed.style.display = isTopNewsMode ? 'none' : 'block';
+    const newsFeed = document.getElementById('newsFeed');
+
+    if (topSection) topSection.style.display = isTopNewsMode ? 'block' : 'none';
+    if (newsFeed) newsFeed.style.display = isTopNewsMode ? 'none' : 'block';
 
     if (isTopNewsMode) {
+        currentSource = 'all';
         startTopNewsLiveUpdates();
         fetchTopNews({ renderIfVisible: true });
-        renderTopNews(topNews);
+        renderTopNews();
     } else {
         stopTopNewsLiveUpdates();
         renderNews();
     }
 
-    renderStats();
     renderSidebar();
+    renderStats();
+}
+
+function getFilteredTopNews() {
+    const query = document.getElementById('searchInput').value.trim().toLowerCase();
+    let items = [...topNews];
+
+    if (!query) return items;
+
+    return items.filter(item => {
+        const caption = (item.news_caption || '').toLowerCase();
+        const summary = (item.news_summary || '').toLowerCase();
+        const source = (item.source || '').toLowerCase();
+        const url = (item.news_url || '').toLowerCase();
+        return caption.includes(query) || summary.includes(query) || source.includes(query) || url.includes(query);
+    });
 }
 
 function fingerprintTopNews(items) {
     if (!Array.isArray(items) || items.length === 0) return '';
     return items
         .slice(0, 100)
-        .map(item => [
-            item.id || '',
-            item.news_url || '',
-            item.news_caption || '',
-            item.ranked_at || '',
-            item.score || '',
-            item.semantic_score || '',
-        ].join('|'))
+        .map(item => [item.news_url || '', item.news_caption || '', item.scraped_at || ''].join('|'))
         .join('||');
 }
 
@@ -546,22 +602,8 @@ function formatUptime(seconds) {
 }
 
 function getDisplayName(sourceName) {
-    if (!sourceName) return 'News Source';
-
-    // Try exact match first
-    let found = sources.find(s => s.name === sourceName);
-    if (found) return found.display_name;
-
-    // Try case-insensitive match
-    const lower = sourceName.toLowerCase();
-    found = sources.find(s => s.name.toLowerCase() === lower);
-    if (found) return found.display_name;
-
-    // Fallback: format the source name nicely (capitalize words)
-    return sourceName
-        .split(/[-_\s]+/)
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-        .join(' ');
+    const found = sources.find(s => s.name === sourceName);
+    return found ? found.display_name : sourceName || 'Unknown';
 }
 
 function escapeHtml(str) {
