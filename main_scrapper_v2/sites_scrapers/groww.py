@@ -13,6 +13,7 @@ from utils.time_utils import parse_groww_date
 
 class GrowwScraper(BaseScraper):
     name = "groww"
+    SESSION_REFRESH_INTERVAL = 24 * 60 * 60  # Refresh session every 24 hours
 
     API_BASE = (
         "https://groww.in/v2/api/feed/public"
@@ -29,6 +30,8 @@ class GrowwScraper(BaseScraper):
         })
 
     def fetch_news(self) -> list[dict]:
+        self._refresh_session_if_stale(self.SESSION_REFRESH_INTERVAL)
+
         # Cache-bust to bypass CDN's 5-minute max-age
         url = f"{self.API_BASE}&_ts={int(time.time())}"
         resp = self._safe_get(url, headers={"Accept": "application/json"})

@@ -241,15 +241,32 @@ body.sidebar-open .main-content {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
 }
 
-.active-source-label {
-    font-size: 14px;
+.mode-toggle-btn {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-family: var(--font);
+    font-size: 13px;
     font-weight: 600;
-    color: var(--accent);
-    padding: 6px 14px;
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.mode-toggle-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+
+.mode-toggle-btn.active {
+    border-color: var(--accent);
     background: var(--accent-bg);
-    border-radius: 20px;
+    color: var(--accent);
 }
 
 .date-controls {
@@ -272,6 +289,106 @@ body.sidebar-open .main-content {
 
 .date-input:focus, .sort-select:focus {
     border-color: var(--accent);
+}
+
+.category-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding-bottom: 2px;
+}
+
+.category-tab {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 4px;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+}
+
+.category-tab:hover {
+    color: var(--text-primary);
+}
+
+.category-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+}
+
+.category-tab-count {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 4px;
+}
+
+.news-categories,
+.top-news-categories {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.news-categories {
+    margin-bottom: 8px;
+}
+
+.top-news-categories {
+    margin-top: 6px;
+}
+
+.category-chip {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    border-radius: 10px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+}
+
+.category-chip.markets {
+    color: #0ea5e9;
+    border-color: rgba(14, 165, 233, 0.3);
+    background: rgba(14, 165, 233, 0.12);
+}
+
+.category-chip.business {
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.3);
+    background: rgba(245, 158, 11, 0.12);
+}
+
+.category-chip.politics {
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.category-chip.india {
+    color: #22c55e;
+    border-color: rgba(34, 197, 94, 0.3);
+    background: rgba(34, 197, 94, 0.12);
+}
+
+.category-chip.world {
+    color: #a78bfa;
+    border-color: rgba(167, 139, 250, 0.3);
+    background: rgba(167, 139, 250, 0.12);
+}
+
+.category-chip.others {
+    color: var(--text-secondary);
+    border-color: var(--border);
+    background: var(--bg-hover);
 }
 
 /* ─── Sidebar ────────────────────────────────────────────────────── */
@@ -356,42 +473,6 @@ body.sidebar-open .sidebar {
     flex: 1;
     overflow-y: auto;
     padding: 10px 12px;
-}
-
-.sidebar-mode-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-    margin-bottom: 8px;
-}
-
-.sidebar-mode-row .sidebar-source-card {
-    margin-bottom: 0;
-}
-
-.sidebar-top-news-btn {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-card);
-    color: var(--text-primary);
-    font-family: var(--font);
-    font-size: 13px;
-    font-weight: 600;
-    padding: 12px 14px;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-}
-
-.sidebar-top-news-btn:hover {
-    border-color: var(--accent);
-    background: var(--bg-hover);
-}
-
-.sidebar-top-news-btn.active {
-    border-color: var(--accent);
-    background: var(--accent-bg);
-    color: var(--accent);
 }
 
 .sidebar-source-card {
@@ -850,6 +931,15 @@ body.sidebar-open .sidebar {
     .top-news-feed { grid-template-columns: 1fr; }
     .news-feed { padding: 0 16px 16px; }
     .filters { flex-direction: column; align-items: stretch; }
+    .category-tabs {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        padding-bottom: 6px;
+    }
+    .category-tab {
+        flex: 0 0 auto;
+    }
     .news-card { padding: 14px 16px; }
     .news-card-body { flex-direction: column; }
     .news-thumb { width: 100%; height: 180px; }

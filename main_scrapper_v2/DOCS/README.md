@@ -24,4 +24,4 @@ Complete documentation for the News Scrapper project.
 | [PROXY_GUIDE.md](PROXY_GUIDE.md) | Proxy configuration, rotation, bandwidth management, anti-block strategies |
 | [LOGGING.md](LOGGING.md) | Log levels, file rotation, color coding, log interpretation |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Running as Windows service, systemd, Docker, production monitoring |
-| [CATEGORIZATION.md](CATEGORIZATION.md) | News categorization system ⚠️ **Feature incomplete** |
+| [CATEGORIZATION.md](CATEGORIZATION.md) | Hybrid real-time categorization system (implemented) |

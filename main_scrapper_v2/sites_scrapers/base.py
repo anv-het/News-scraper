@@ -91,8 +91,6 @@ class BaseScraper(ABC):
 
     def _refresh_session(self):
         """Refresh the session by clearing cookies and resetting to a clean state."""
-        old_proxies = dict(self.session.proxies) if self.session.proxies else {}
-
         # Clear the session
         self.session.close()
         self.session = requests.Session()
@@ -101,6 +99,20 @@ class BaseScraper(ABC):
         self._setup_session()
 
         self._log.debug("Session refreshed (cookies cleared, new connection pool)")
+
+    def _refresh_session_if_stale(self, refresh_interval_seconds: int) -> bool:
+        """Refresh session when older than refresh_interval_seconds."""
+        if refresh_interval_seconds <= 0:
+            return False
+
+        age_seconds = time.time() - self._session_created_at
+        if age_seconds <= refresh_interval_seconds:
+            return False
+
+        self._log.info(f"Session refresh (periodic, age={int(age_seconds)}s)")
+        self._refresh_session()
+        self.setup()  # Re-apply scraper-specific headers after reset
+        return True
 
 
     def setup(self):

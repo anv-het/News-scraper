@@ -64,7 +64,8 @@
                 </div>
                 <div class="filters">
                     <div class="active-source-display">
-                        <span class="active-source-label" id="activeSourceLabel">All Sources</span>
+                        <button class="mode-toggle-btn active" id="allSourcesBtn" type="button">🌐 All Sources</button>
+                        <button class="mode-toggle-btn" id="topNewsBtn" type="button">⭐ Top News</button>
                     </div>
                     <div class="date-controls">
                         <input type="date" id="dateFilter" class="date-input">
@@ -74,6 +75,9 @@
                             <option value="source">By Source</option>
                         </select>
                     </div>
+                </div>
+                <div class="category-tabs" id="categoryTabs" aria-label="Category filter tabs">
+                    <!-- Populated by JS -->
                 </div>
             </section>
 

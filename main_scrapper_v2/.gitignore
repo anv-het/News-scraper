@@ -1,4 +1,4 @@
 /DATA
 /logs
 __pycache__/
-/DATA_older
+*.pyc

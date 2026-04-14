@@ -44,6 +44,7 @@ from storage.json_storage import JsonStorage
 from storage.redis_cache import RedisCache
 from utils.proxy import ProxyManager
 from sites_scrapers.base import BaseScraper
+from categorizing.fast_categorizer import get_news_categorizer
 from categorizing.top_news import get_top_news_manager
 
 # ─── Configuration ───────────────────────────────────────────────────────────
@@ -217,6 +218,7 @@ class ScraperWorker(threading.Thread):
         config: dict,
         stop_event: threading.Event,
         top_news_mgr=None,
+        categorizer=None,
     ):
         super().__init__(daemon=True, name=f"worker-{scraper.name}")
         self.scraper = scraper
@@ -225,6 +227,7 @@ class ScraperWorker(threading.Thread):
         self.config = config
         self.stop_event = stop_event
         self.top_news_mgr = top_news_mgr
+        self.categorizer = categorizer
 
         poll = config.get("sites", {}).get(scraper.name, {}).get(
             "poll_interval",
@@ -319,6 +322,10 @@ class ScraperWorker(threading.Thread):
 
             if new_items:
                 try:
+                    if self.categorizer:
+                        for item in new_items:
+                            self.categorizer.apply_to_article(item)
+
                     # Save all articles immediately
                     saved = self.storage.save_news(self.scraper.name, new_items)
                     saved_items = new_items if saved > 0 else []
@@ -486,6 +493,7 @@ Run modes:
 
 def _run_once(scrapers, storage, root_log):
     """Fetch from each scraper once (sequentially) and save results."""
+    categorizer = get_news_categorizer()
     total = 0
     for scraper in scrapers:
         try:
@@ -495,6 +503,8 @@ def _run_once(scrapers, storage, root_log):
             root_log.error(f"[{scraper.name}] Fetch error: {e}")
             continue
         if items:
+            for item in items:
+                categorizer.apply_to_article(item)
             saved = storage.save_news(scraper.name, items)
             total += saved
             root_log.info(f"[{scraper.name}] +{saved} articles saved")
@@ -658,6 +668,9 @@ def main():
         weight = source_cfg.get("source_importance_weight", 1.0)
         source_weights[source_name] = weight
 
+    # Shared categorizer instance for all ingestion paths.
+    categorizer = get_news_categorizer()
+
     # Initialize top news manager
     semantic_config = {
         "enabled": config["semantic_enabled"],
@@ -728,6 +741,7 @@ def main():
             config=config,
             stop_event=stop_event,
             top_news_mgr=top_news_mgr,
+            categorizer=categorizer,
         )
         workers.append(worker)
         worker.start()

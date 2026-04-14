@@ -4,10 +4,9 @@ Source: https://www.moneycontrol.com/news/business/markets/
 Method: HTML scrape (BeautifulSoup) — server-rendered <ul id="cagetory">
 Dedup: by article ID extracted from URL
 Note: RSS feeds are stale (last updated 2024), no usable JSON API found.
-Note: Session refresh every 3600s to prevent stale session blocks
+Note: Session refresh every 24 hours to prevent stale session blocks
 """
 
-import time
 from bs4 import BeautifulSoup
 
 from .base import BaseScraper
@@ -18,7 +17,7 @@ class MoneycontrolScraper(BaseScraper):
     name = "moneycontrol"
 
     PAGE_URL = "https://www.moneycontrol.com/news/business/markets/"
-    SESSION_REFRESH_INTERVAL = 3600  # Refresh session every 1 hour
+    SESSION_REFRESH_INTERVAL = 24 * 60 * 60  # Refresh session every 24 hours
 
     def setup(self):
         self.session.headers.update({
@@ -34,11 +33,7 @@ class MoneycontrolScraper(BaseScraper):
         })
 
     def fetch_news(self) -> list[dict]:
-        # Refresh session if it's been too long since last refresh
-        if time.time() - self._session_created_at > self.SESSION_REFRESH_INTERVAL:
-            self._log.info("Session refresh (periodic)")
-            self._refresh_session()
-            self.setup()  # Re-apply scraper-specific headers
+        self._refresh_session_if_stale(self.SESSION_REFRESH_INTERVAL)
 
         resp = self._safe_get(self.PAGE_URL)
         if not resp:

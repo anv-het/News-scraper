@@ -135,7 +135,7 @@ def show_comparison(top_news_mgr: TopNewManager, old_scores: dict, old_top_news:
     new_top_news = top_news_mgr.get_top_news(limit=10)
 
     logger.info("\n" + "="*80)
-    logger.info("TOP 10 COMPARISON (Before → After)")
+    logger.info("TOP 10 COMPARISON (Before vs After)")
     logger.info("="*80)
     logger.info(f"{'Rank':<5} {'Source':<18} {'Old Score':<12} {'New Score':<12} {'Change':<10}")
     logger.info("-"*80)
@@ -154,7 +154,7 @@ def show_comparison(top_news_mgr: TopNewManager, old_scores: dict, old_top_news:
         )
 
     logger.info("-"*80)
-    logger.info(f"Total articles in top news: {len(top_news_mgr.get_top_news())} → {len(new_top_news)}")
+    logger.info(f"Total articles in top news: {len(top_news_mgr.get_top_news())} : {len(new_top_news)}")
     logger.info("="*80 + "\n")
 
 
@@ -199,7 +199,7 @@ def main():
 
     logger.info(f"Loaded {len(source_weights)} source weights:")
     for source, weight in sorted(source_weights.items()):
-        logger.info(f"  {source:<18} → {weight}")
+        logger.info(f"  {source:<18} : {weight}")
 
     logger.info(f"\nDEBUG: source_weights dict = {source_weights}")
 
@@ -250,7 +250,7 @@ def main():
             score = top_news_mgr.calculate_relevance_score(article)
 
             logger.info(f"\n[{i+1}] {title}")
-            logger.info(f"    Article source field: '{source_raw}' → lowercase: '{source}'")
+            logger.info(f"    Article source field: '{source_raw}' lowercase: '{source}'")
             logger.info(f"    Source weight lookup: '{source}' in weights? {source in top_news_mgr.source_weights}")
             logger.info(f"    Result weight: {source_weight}")
             logger.info(f"    Time score: {time_score:.4f} | Keyword boost: {keyword_boost:.4f} | Final score: {score:.4f}")
@@ -267,7 +267,7 @@ def main():
 
     top_news_mgr.update_top_news(all_articles)
 
-    logger.info(f"✓ Top news updated with {len(top_news_mgr.get_top_news())} articles")
+    logger.info(f"Top news updated with {len(top_news_mgr.get_top_news())} articles")
 
     # Show stats if requested
     if args.show_stats:

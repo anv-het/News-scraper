@@ -31,11 +31,24 @@ let topNews = [];
 let fuseInstance = null;
 let currentSource = 'all';
 let currentSort = 'newest';
+let currentCategory = 'all';
 let isTopNewsMode = false;
 let sources = [];
 let statsData = {};
 let topNewsRefreshTimer = null;
 let topNewsFingerprint = '';
+
+const STRICT_CATEGORIES = ['business', 'markets', 'politics', 'india', 'world', 'others'];
+const CATEGORY_LABELS = {
+    all: 'Latest',
+    business: 'Business',
+    markets: 'Markets',
+    politics: 'Politics',
+    india: 'India',
+    world: 'World',
+    others: 'Others',
+};
+const CATEGORY_TABS = ['all', ...STRICT_CATEGORIES];
 
 const SOURCE_LINKS = {
     groww: 'https://groww.in/market-news/stocks',
@@ -63,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     initSidebar();
     initEventListeners();
+    initCategoryTabs();
     setTodayDate();
     fetchAll();
     setInterval(fetchAll, REFRESH_INTERVAL);
@@ -136,6 +150,28 @@ function initEventListeners() {
         currentSort = e.target.value;
         onFilterChange();
     });
+
+    const allSourcesBtn = document.getElementById('allSourcesBtn');
+    const topNewsBtn = document.getElementById('topNewsBtn');
+
+    if (allSourcesBtn) {
+        allSourcesBtn.addEventListener('click', () => {
+            currentSource = 'all';
+            setTopNewsMode(false);
+            renderSidebar();
+            fetchNews();
+        });
+    }
+
+    if (topNewsBtn) {
+        topNewsBtn.addEventListener('click', () => {
+            setTopNewsMode(true);
+        });
+    }
+}
+
+function initCategoryTabs() {
+    renderCategoryTabs();
 }
 
 function setTodayDate() {
@@ -183,6 +219,7 @@ async function fetchNews() {
         const resp = await fetch(`${API_BASE}/api/news?date=${date}&limit=1000${sourceParam}`);
         allNews = await resp.json();
         buildFuseIndex();
+        renderCategoryTabs();
         const loadingEl = document.getElementById('loading');
         if (loadingEl) loadingEl.style.display = 'none';
         if (!isTopNewsMode) {
@@ -200,6 +237,7 @@ async function fetchTopNews(options = {}) {
     try {
         const resp = await fetch(`${API_BASE}/api/top-news`);
         topNews = await resp.json();
+        renderCategoryTabs();
 
         const nextFingerprint = fingerprintTopNews(topNews);
         const changed = nextFingerprint !== topNewsFingerprint;
@@ -253,13 +291,10 @@ function renderSidebar() {
     const filterText = (document.getElementById('sidebarFilter')?.value || '').toLowerCase();
 
     let html = `
-        <div class="sidebar-mode-row">
-            <div class="sidebar-source-card ${!isTopNewsMode && currentSource === 'all' ? 'active' : ''}" data-source="all">
-                <div class="sidebar-source-header">
-                    <span class="sidebar-source-name">🌐 All Sources</span>
-                </div>
+        <div class="sidebar-source-card ${!isTopNewsMode && currentSource === 'all' ? 'active' : ''}" data-source="all">
+            <div class="sidebar-source-header">
+                <span class="sidebar-source-name">🌐 All Sources</span>
             </div>
-            <button class="sidebar-top-news-btn ${isTopNewsMode ? 'active' : ''}" type="button" data-action="top-news">⭐ Top News</button>
         </div>
     `;
 
@@ -315,16 +350,8 @@ function renderSidebar() {
         card.addEventListener('click', () => {
             currentSource = card.dataset.source;
             setTopNewsMode(false);
-            document.getElementById('activeSourceLabel').textContent =
-                currentSource === 'all' ? 'All Sources' : getDisplayName(currentSource);
             renderSidebar();
             fetchNews();
-        });
-    });
-
-    container.querySelectorAll('[data-action="top-news"]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            setTopNewsMode(!isTopNewsMode);
         });
     });
 
@@ -337,6 +364,84 @@ function renderSidebar() {
 
 function renderSourceTabs() {
     // Legacy: no-op, superseded by sidebar
+}
+
+function renderCategoryTabs() {
+    const container = document.getElementById('categoryTabs');
+    if (!container) return;
+
+    const counts = getCategoryCounts();
+    container.innerHTML = CATEGORY_TABS.map((cat) => {
+        const label = CATEGORY_LABELS[cat] || cat;
+        const count = counts[cat] || 0;
+        const active = currentCategory === cat ? 'active' : '';
+        return `<button class="category-tab ${active}" type="button" data-category="${cat}">${escapeHtml(label)} <span class="category-tab-count">(${count})</span></button>`;
+    }).join('');
+
+    container.querySelectorAll('.category-tab').forEach((button) => {
+        button.addEventListener('click', () => {
+            const category = button.dataset.category || 'all';
+            currentCategory = category;
+            renderCategoryTabs();
+            onFilterChange();
+        });
+    });
+}
+
+function getCategoryCounts() {
+    const counts = { all: 0, business: 0, markets: 0, politics: 0, india: 0, world: 0, others: 0 };
+    const base = isTopNewsMode
+        ? [...topNews]
+        : (currentSource === 'all' ? [...allNews] : allNews.filter(item => item.source === currentSource));
+
+    counts.all = base.length;
+    for (const item of base) {
+        for (const cat of getItemCategories(item)) {
+            if (cat in counts) {
+                counts[cat] += 1;
+            }
+        }
+    }
+
+    return counts;
+}
+
+function normalizeCategory(category) {
+    const val = String(category || '').trim().toLowerCase();
+    if (val === 'other') return 'others';
+    return STRICT_CATEGORIES.includes(val) ? val : '';
+}
+
+function getItemCategories(item) {
+    const raw = Array.isArray(item.categories)
+        ? item.categories
+        : (item.category ? [item.category] : []);
+
+    const cleaned = [];
+    for (const cat of raw) {
+        const normalized = normalizeCategory(cat);
+        if (normalized && !cleaned.includes(normalized)) {
+            cleaned.push(normalized);
+        }
+        if (cleaned.length >= 3) break;
+    }
+
+    return cleaned.length > 0 ? cleaned : ['others'];
+}
+
+function matchesCurrentCategory(item) {
+    if (currentCategory === 'all') return true;
+    return getItemCategories(item).includes(currentCategory);
+}
+
+function renderCategoryChips(item, wrapperClass) {
+    const cats = getItemCategories(item);
+    if (!cats.length) return '';
+    const chips = cats.map((cat) => {
+        const label = CATEGORY_LABELS[cat] || cat;
+        return `<span class="category-chip ${cat}">${escapeHtml(label)}</span>`;
+    }).join('');
+    return `<div class="${wrapperClass}">${chips}</div>`;
 }
 
 function renderStats() {
@@ -363,11 +468,6 @@ function renderStats() {
     const now = new Date();
     const istStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
     document.getElementById('lastUpdated').textContent = istStr;
-
-    const activeLabel = isTopNewsMode
-        ? 'Top News'
-        : (currentSource === 'all' ? 'All Sources' : getDisplayName(currentSource));
-    document.getElementById('activeSourceLabel').textContent = activeLabel;
 }
 
 function renderHealthCards() {
@@ -395,6 +495,7 @@ function renderNews() {
         const url = item.news_url || '#';
         const summary = item.news_summary || '';
         const imageUrl = item.image_url || '';
+        const categoriesHtml = renderCategoryChips(item, 'news-categories');
 
         const imageHtml = imageUrl
             ? `<div class="news-thumb">
@@ -415,6 +516,7 @@ function renderNews() {
                         </div>
                         <span class="news-source-badge source-${src}">${getDisplayName(src)}</span>
                     </div>
+                    ${categoriesHtml}
                     ${summary ? `<div class="news-summary">${escapeHtml(summary)}</div>` : ''}
                     <div class="news-meta">
                         <span class="news-meta-item time-ago">⏱ ${timeAgo}</span>
@@ -449,6 +551,7 @@ function renderTopNews() {
         const url = item.news_url || '#';
         const imageUrl = item.image_url || '';
         const timeAgo = computeTimeAgo(item);
+        const categoriesHtml = renderCategoryChips(item, 'top-news-categories');
 
         const imageHtml = imageUrl
             ? `<div class="top-news-card-thumb"><a href="${escapeHtml(url)}" target="_blank" rel="noopener"><img src="${escapeHtml(imageUrl)}" alt="" loading="lazy" onerror="this.parentElement.parentElement.style.display='none'"></a></div>`
@@ -459,6 +562,7 @@ function renderTopNews() {
             ${imageHtml}
             <div class="top-news-card-content">
                 <div class="top-news-card-title"><a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(title)}</a></div>
+                ${categoriesHtml}
                 <div class="top-news-card-meta">
                     <span class="top-news-source-badge source-${srcClass}">${escapeHtml(sourceLabel)}</span>
                     <span class="meta-separator">•</span>
@@ -483,6 +587,8 @@ function getFilteredNews() {
         items = items.filter(n => n.source === currentSource);
     }
 
+    items = items.filter(matchesCurrentCategory);
+
     // Search
     if (query && fuseInstance) {
         const results = fuseInstance.search(query);
@@ -491,6 +597,7 @@ function getFilteredNews() {
         if (currentSource !== 'all') {
             items = items.filter(n => n.source === currentSource);
         }
+        items = items.filter(matchesCurrentCategory);
     }
 
     return items;
@@ -510,6 +617,7 @@ function sortNews(items) {
 }
 
 function onFilterChange() {
+    renderCategoryTabs();
     if (isTopNewsMode) {
         renderTopNews();
         return;
@@ -537,12 +645,29 @@ function setTopNewsMode(enabled) {
     }
 
     renderSidebar();
+    renderCategoryTabs();
     renderStats();
+    renderModeButtons();
+}
+
+function renderModeButtons() {
+    const allSourcesBtn = document.getElementById('allSourcesBtn');
+    const topNewsBtn = document.getElementById('topNewsBtn');
+
+    if (allSourcesBtn) {
+        allSourcesBtn.classList.toggle('active', !isTopNewsMode && currentSource === 'all');
+    }
+
+    if (topNewsBtn) {
+        topNewsBtn.classList.toggle('active', isTopNewsMode);
+    }
 }
 
 function getFilteredTopNews() {
     const query = document.getElementById('searchInput').value.trim().toLowerCase();
     let items = [...topNews];
+
+    items = items.filter(matchesCurrentCategory);
 
     if (!query) return items;
 
