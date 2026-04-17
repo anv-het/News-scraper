@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 
 from utils.time_utils import IST, now_ist, sort_key_desc
+from utils.unique_id import UniqueIdAllocator
 
 
 class JsonStorage:
@@ -26,6 +27,7 @@ class JsonStorage:
         self._backup_lock = threading.Lock()
         self._title_dedup_lock = threading.Lock()
         self._date_title_index: dict[str, set[str]] = {}
+        self._unique_id_allocator = UniqueIdAllocator(os.path.join(data_dir, ".unique_id_state.json"))
         os.makedirs(data_dir, exist_ok=True)
 
     @staticmethod
@@ -219,6 +221,9 @@ class JsonStorage:
         if not news_list:
             return 0
 
+        # Ensure every fetched item has a persistent monotonic unique ID.
+        self._unique_id_allocator.assign_if_missing(news_list)
+
         lock = self._get_lock(source)
         src_dir = self._source_dir(source)
         saved = 0
@@ -263,6 +268,8 @@ class JsonStorage:
         """Append news to the shared root backup.json (all-time collection)."""
         if not news_list:
             return
+
+        self._unique_id_allocator.assign_if_missing(news_list)
 
         normalized = self._normalize_items(source, news_list)
         seen_titles: set[str] = set()

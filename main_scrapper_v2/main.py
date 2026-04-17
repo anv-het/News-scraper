@@ -41,6 +41,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 from logger import setup_logger, SourceLogger
 from health.api_server import start_dashboard
 from storage.json_storage import JsonStorage
+from storage.mongo_storage import MongoStorage
 from storage.redis_cache import RedisCache
 from utils.proxy import ProxyManager
 from sites_scrapers.base import BaseScraper
@@ -63,6 +64,10 @@ def load_config() -> dict:
         "redis_url": os.getenv("REDIS_URL", "redis://localhost:6379/0"),
         "redis_prefix": os.getenv("REDIS_PREFIX", "news_scrapper"),
         "redis_seen_ttl_days": int(os.getenv("REDIS_SEEN_TTL_DAYS", "90")),
+        "mongo_enabled": os.getenv("MONGO_ENABLED", "false").lower() == "true",
+        "mongo_url": os.getenv("MONGO_URL", "mongodb://localhost:27017"),
+        "mongo_database": os.getenv("MONGO_DATABASE", "news_scrapper"),
+        "mongo_collection": os.getenv("MONGO_COLLECTION", "news"),
         "proxy_enabled": os.getenv("PROXY_ENABLED", "false").lower() == "true",
         "proxy_file": os.getenv("PROXY_FILE", "proxies.txt"),
         "proxy_bandwidth_limit_mb": int(os.getenv("PROXY_BANDWIDTH_LIMIT_MB", "1024")),
@@ -215,6 +220,7 @@ class ScraperWorker(threading.Thread):
         scraper: BaseScraper,
         storage: JsonStorage,
         redis_cache: RedisCache | None,
+        mongo_storage: MongoStorage | None,
         config: dict,
         stop_event: threading.Event,
         top_news_mgr=None,
@@ -224,6 +230,7 @@ class ScraperWorker(threading.Thread):
         self.scraper = scraper
         self.storage = storage
         self.redis = redis_cache
+        self.mongo_storage = mongo_storage
         self.config = config
         self.stop_event = stop_event
         self.top_news_mgr = top_news_mgr
@@ -354,12 +361,22 @@ class ScraperWorker(threading.Thread):
                 self._backup_buffer.extend(new_items)
 
                 # Update top news with saved articles
+                scored_items = saved_items
                 if self.top_news_mgr and saved_items:
                     try:
                         self.top_news_mgr.update_top_news(saved_items)
+                        scored_items = self.top_news_mgr.get_enriched_articles(saved_items)
                     except Exception as e:
                         print(f"[{self.scraper.name}] TOP_NEWS ERROR: {type(e).__name__}: {e}", flush=True)
                         self.log.warning(f"Top news update error: {e}")
+
+                if self.mongo_storage and self.mongo_storage.available and scored_items:
+                    try:
+                        mongo_saved = self.mongo_storage.save_news(self.scraper.name, scored_items)
+                        self.log.info(f"Saved {mongo_saved} in MongoDB")
+                    except Exception as e:
+                        print(f"[{self.scraper.name}] MONGO ERROR: {type(e).__name__}: {e}", flush=True)
+                        self.log.warning(f"MongoDB save error: {e}")
 
 
                 if self.redis:
@@ -491,7 +508,7 @@ Run modes:
 
 # ─── Run-mode helpers ────────────────────────────────────────────────────────
 
-def _run_once(scrapers, storage, root_log):
+def _run_once(scrapers, storage, root_log, top_news_mgr=None, mongo_storage=None):
     """Fetch from each scraper once (sequentially) and save results."""
     categorizer = get_news_categorizer()
     total = 0
@@ -506,6 +523,23 @@ def _run_once(scrapers, storage, root_log):
             for item in items:
                 categorizer.apply_to_article(item)
             saved = storage.save_news(scraper.name, items)
+            saved_items = items if saved > 0 else []
+
+            scored_items = saved_items
+            if top_news_mgr and saved_items:
+                try:
+                    top_news_mgr.update_top_news(saved_items)
+                    scored_items = top_news_mgr.get_enriched_articles(saved_items)
+                except Exception as e:
+                    root_log.warning(f"[{scraper.name}] Top-news update error: {e}")
+
+            if mongo_storage and getattr(mongo_storage, "available", False) and scored_items:
+                try:
+                    mongo_saved = mongo_storage.save_news(scraper.name, scored_items)
+                    root_log.info(f"[{scraper.name}] +{mongo_saved} articles saved to MongoDB")
+                except Exception as e:
+                    root_log.warning(f"[{scraper.name}] MongoDB save error: {e}")
+
             total += saved
             root_log.info(f"[{scraper.name}] +{saved} articles saved")
         else:
@@ -513,14 +547,14 @@ def _run_once(scrapers, storage, root_log):
     return total
 
 
-def run_once_mode(scrapers, storage, root_log):
+def run_once_mode(scrapers, storage, root_log, top_news_mgr=None, mongo_storage=None):
     """--once: single fetch from all sources, then exit."""
     root_log.info("Mode: ONCE — fetching all sources once...")
-    total = _run_once(scrapers, storage, root_log)
+    total = _run_once(scrapers, storage, root_log, top_news_mgr=top_news_mgr, mongo_storage=mongo_storage)
     root_log.info(f"Done. {total} total articles saved.")
 
 
-def run_cron_mode(scrapers, storage, root_log, interval, config):
+def run_cron_mode(scrapers, storage, root_log, interval, config, top_news_mgr=None, mongo_storage=None):
     """--cron N: fetch, sleep N seconds, repeat until Ctrl+C."""
     root_log.info(f"Mode: CRON — interval {interval}s  (Ctrl+C to stop)")
     cycle = 0
@@ -533,7 +567,13 @@ def run_cron_mode(scrapers, storage, root_log, interval, config):
                 continue
             cycle += 1
             root_log.info(f"--- Cron cycle {cycle} ---")
-            total = _run_once(scrapers, storage, root_log)
+            total = _run_once(
+                scrapers,
+                storage,
+                root_log,
+                top_news_mgr=top_news_mgr,
+                mongo_storage=mongo_storage,
+            )
             root_log.info(f"Cycle {cycle} done. {total} articles. Sleeping {interval}s...")
             time.sleep(interval)
     except KeyboardInterrupt:
@@ -662,6 +702,14 @@ def main():
         f"shared backup synchronized ({migrated_backup} articles updated)"
     )
 
+    mongo_storage = MongoStorage(
+        enabled=config["mongo_enabled"],
+        mongo_url=config["mongo_url"],
+        database_name=config["mongo_database"],
+        collection_name=config["mongo_collection"],
+        logger=logger,
+    )
+
     # Build source importance weights from sites config
     source_weights = {}
     for source_name, source_cfg in config["sites"].items():
@@ -719,11 +767,25 @@ def main():
         sys.exit(exit_code)
 
     if args.once:
-        run_once_mode(scrapers, storage, root_log)
+        run_once_mode(
+            scrapers,
+            storage,
+            root_log,
+            top_news_mgr=top_news_mgr,
+            mongo_storage=mongo_storage,
+        )
         return
 
     if args.cron is not None:
-        run_cron_mode(scrapers, storage, root_log, args.cron, config)
+        run_cron_mode(
+            scrapers,
+            storage,
+            root_log,
+            args.cron,
+            config,
+            top_news_mgr=top_news_mgr,
+            mongo_storage=mongo_storage,
+        )
         return
 
     # ── Default: continuous polling mode ────────────────────────────
@@ -738,6 +800,7 @@ def main():
             scraper=scraper,
             storage=storage,
             redis_cache=redis_cache,
+            mongo_storage=mongo_storage,
             config=config,
             stop_event=stop_event,
             top_news_mgr=top_news_mgr,

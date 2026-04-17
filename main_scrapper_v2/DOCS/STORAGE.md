@@ -30,6 +30,7 @@ Array of news items sorted **descending** by date+time (newest first):
 ```json
 [
   {
+    "unique_id": "A00000",
     "news_date": "2026-03-09",
     "news_time": "05:07 PM IST",
     "scraped_at": "2026-03-09 11:40:36 IST",
@@ -54,6 +55,7 @@ Array of news items sorted **descending** by date+time (newest first):
 
 | Field | Type | Format | Description |
 |-------|------|--------|-------------|
+| `unique_id` | string | `A00000`, `Z99999`, `ZA00000`, ... | Persistent monotonic ID assigned at ingestion |
 | `news_date` | string | `YYYY-MM-DD` | Publication date in IST |
 | `news_time` | string | `HH:MM AM/PM IST` | Publication time in IST |
 | `scraped_at` | string | `YYYY-MM-DD HH:MM:SS IST` | When we fetched it |
@@ -76,6 +78,30 @@ Same article schema as source daily files, but aggregated across all sources for
 
 Same schema as daily files but contains **all articles ever collected** across all sources.
 Sorted descending by date+time. Written periodically (every `BACKUP_WRITE_INTERVAL` seconds).
+
+### MongoDB Collection (`MONGO_DATABASE.MONGO_COLLECTION`)
+
+When `MONGO_ENABLED=true`, each fetched article is written to MongoDB immediately after top-score computation.
+The MongoDB document format is strict and always uses these keys:
+
+```json
+{
+  "unique_id": "A00000",
+  "news_source": "scanx",
+  "news_date": "2026-04-16",
+  "news_time": "03:12 PM IST",
+  "scraped_at": "2026-04-16 03:13:12 PM IST",
+  "news_caption": "Coforge Allots 39,681 Equity Shares Under Employee Stock Option Plan",
+  "news_summary": "Coforge Limited has allotted 39,681 equity shares under its Employee Stock Option Plan (ESOP) 2005...",
+  "news_url": "https://scanx.trade/stock-market-news/companies/coforge-allots-39-681-equity-shares-under-employee-stock-option-plan/37878152",
+  "image_url": "https://news-images.dhan.co/coforge-allots-39-681-equity-shares-under-employee-stock-option-plan.jpg",
+  "main_category": "markets",
+  "categories": ["markets", "business"],
+  "top_score": 0.8731
+}
+```
+
+Upsert identity uses (`news_source`, `news_url`) where URL is available, with a fallback identity based on source + date + time + caption. The unique Mongo index on (`news_source`, `news_url`) is partial and applies only when `news_url` is non-empty.
 
 ---
 

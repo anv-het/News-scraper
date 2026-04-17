@@ -23,6 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from categorizing.fast_categorizer import get_news_categorizer
+from utils.unique_id import UniqueIdAllocator
 
 
 LOGGER = logging.getLogger("retag_news")
@@ -35,6 +36,7 @@ class RetagStats:
     articles_seen_total: int = 0
     articles_seen_target: int = 0
     articles_retagged: int = 0
+    unique_ids_assigned: int = 0
     skipped_files: int = 0
     failed_files: int = 0
 
@@ -148,16 +150,17 @@ def _resolve_article_source(article: dict, default_source: str) -> str:
     return (article.get("source") or default_source or "").strip().lower()
 
 
-def _retag_article(article: dict, default_source: str, source_filter: set[str]) -> tuple[bool, bool]:
+def _retag_article(article: dict, default_source: str, source_filter: set[str]) -> tuple[bool, bool, bool]:
     if not isinstance(article, dict):
-        return False, False
+        return False, False, False
 
     source = _resolve_article_source(article, default_source)
     if source_filter and source not in source_filter:
-        return False, False
+        return False, False, False
 
     before_categories = tuple(article.get("categories") or [])
     before_category = article.get("category")
+    missing_unique_id = not str(article.get("unique_id") or "").strip()
 
     if source and not article.get("source"):
         article["source"] = source
@@ -167,21 +170,27 @@ def _retag_article(article: dict, default_source: str, source_filter: set[str]) 
     after_categories = tuple(article.get("categories") or [])
     after_category = article.get("category")
     changed = (before_categories != after_categories) or (before_category != after_category)
-    return True, changed
+    return True, changed, missing_unique_id
 
 
-def _process_payload(payload, file_path: Path, source_filter: set[str]) -> tuple[int, int, int]:
+def _process_payload(
+    payload,
+    file_path: Path,
+    source_filter: set[str],
+    id_allocator: UniqueIdAllocator,
+) -> tuple[int, int, int, int]:
     default_source = _default_source_for_file(file_path)
 
     if isinstance(payload, list):
         seen_total = 0
         seen_target = 0
         changed = 0
+        items_missing_id: list[dict] = []
         for item in payload:
             if not isinstance(item, dict):
                 continue
             seen_total += 1
-            considered, item_changed = _retag_article(
+            considered, item_changed, missing_id = _retag_article(
                 item,
                 default_source=default_source,
                 source_filter=source_filter,
@@ -191,17 +200,22 @@ def _process_payload(payload, file_path: Path, source_filter: set[str]) -> tuple
             seen_target += 1
             if item_changed:
                 changed += 1
-        return seen_total, seen_target, changed
+            if missing_id:
+                items_missing_id.append(item)
+
+        ids_assigned = id_allocator.assign_if_missing(items_missing_id)
+        return seen_total, seen_target, changed, ids_assigned
 
     if isinstance(payload, dict) and isinstance(payload.get("articles"), list):
         seen_total = 0
         seen_target = 0
         changed = 0
+        items_missing_id: list[dict] = []
         for item in payload["articles"]:
             if not isinstance(item, dict):
                 continue
             seen_total += 1
-            considered, item_changed = _retag_article(
+            considered, item_changed, missing_id = _retag_article(
                 item,
                 default_source=default_source,
                 source_filter=source_filter,
@@ -211,9 +225,33 @@ def _process_payload(payload, file_path: Path, source_filter: set[str]) -> tuple
             seen_target += 1
             if item_changed:
                 changed += 1
-        return seen_total, seen_target, changed
+            if missing_id:
+                items_missing_id.append(item)
 
-    return 0, 0, 0
+        ids_assigned = id_allocator.assign_if_missing(items_missing_id)
+        return seen_total, seen_target, changed, ids_assigned
+
+    return 0, 0, 0, 0
+
+
+def _allocator_for_file(
+    file_path: Path,
+    roots: list[Path],
+    cache: dict[Path, UniqueIdAllocator],
+) -> UniqueIdAllocator:
+    for root in roots:
+        try:
+            file_path.relative_to(root)
+            if root not in cache:
+                cache[root] = UniqueIdAllocator(root / ".unique_id_state.json")
+            return cache[root]
+        except ValueError:
+            continue
+
+    fallback_root = roots[0]
+    if fallback_root not in cache:
+        cache[fallback_root] = UniqueIdAllocator(fallback_root / ".unique_id_state.json")
+    return cache[fallback_root]
 
 
 def _write_json(path: Path, payload) -> None:
@@ -241,6 +279,7 @@ def main() -> int:
 
     stats = RetagStats()
     categorizer = get_news_categorizer()
+    id_allocators: dict[Path, UniqueIdAllocator] = {}
     LOGGER.info("Using categorizer: %s", categorizer.__class__.__name__)
     LOGGER.info("Scanning %d JSON files", len(files))
     if source_filter:
@@ -261,7 +300,13 @@ def main() -> int:
             LOGGER.warning("Failed to read %s: %s", file_path, exc)
             continue
 
-        seen_total, seen_target, changed = _process_payload(payload, file_path, source_filter)
+        id_allocator = _allocator_for_file(file_path, roots, id_allocators)
+        seen_total, seen_target, changed, ids_assigned = _process_payload(
+            payload,
+            file_path,
+            source_filter,
+            id_allocator,
+        )
         if seen_total == 0:
             stats.skipped_files += 1
             continue
@@ -269,11 +314,18 @@ def main() -> int:
         stats.articles_seen_total += seen_total
         stats.articles_seen_target += seen_target
         stats.articles_retagged += changed
+        stats.unique_ids_assigned += ids_assigned
 
-        if changed > 0:
+        if changed > 0 or ids_assigned > 0:
             stats.files_changed += 1
             if args.verbose:
-                LOGGER.info("%s -> retagged %d/%d target articles", file_path, changed, seen_target)
+                LOGGER.info(
+                    "%s -> retagged %d/%d target articles, assigned %d unique IDs",
+                    file_path,
+                    changed,
+                    seen_target,
+                    ids_assigned,
+                )
             if not args.dry_run:
                 try:
                     _write_json(file_path, payload)
@@ -292,6 +344,7 @@ def main() -> int:
     LOGGER.info("Articles seen (all)    : %d", stats.articles_seen_total)
     LOGGER.info("Articles seen (target) : %d", stats.articles_seen_target)
     LOGGER.info("Articles retagged: %d", stats.articles_retagged)
+    LOGGER.info("Unique IDs assigned: %d", stats.unique_ids_assigned)
 
     return 0
 

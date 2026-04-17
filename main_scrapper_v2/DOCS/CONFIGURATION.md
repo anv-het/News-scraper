@@ -33,6 +33,15 @@ Complete reference for all configuration files and settings.
 | `REDIS_PREFIX` | string | `news_scrapper` | Key prefix for all Redis keys |
 | `REDIS_SEEN_TTL_DAYS` | int | `90` | TTL for seen-ID entries (days) |
 
+### MongoDB
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `MONGO_ENABLED` | bool | `false` | Enable MongoDB writes for scored news documents |
+| `MONGO_URL` | string | `mongodb://localhost:27017` | MongoDB connection URL |
+| `MONGO_DATABASE` | string | `news_scrapper` | MongoDB database name |
+| `MONGO_COLLECTION` | string | `news` | MongoDB collection name |
+
 **Redis key structure:**
 ```
 news_scrapper:seen:<source>          → SET of seen article IDs

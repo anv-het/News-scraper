@@ -309,6 +309,23 @@ class TopNewManager:
 
         return self._top_news
 
+    def get_enriched_articles(self, articles: list[dict]) -> list[dict]:
+        """Return scored article snapshots from the internal index."""
+        if not articles:
+            return []
+
+        enriched_articles: list[dict] = []
+        with self._lock:
+            for article in articles:
+                article_id = self._get_article_id(article)
+                indexed = self._article_index.get(article_id)
+                if indexed is None:
+                    indexed = self._apply_fresh_scores_locked(dict(article))
+                    self._article_index[article_id] = indexed
+                enriched_articles.append(dict(indexed))
+
+        return enriched_articles
+
     def get_top_news(self, limit: int = 100, category: str | None = None) -> list[dict]:
         with self._lock:
             articles = self._top_news
