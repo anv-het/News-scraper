@@ -41,13 +41,16 @@ class TopNewManager:
         self.source_weights = source_weights or DEFAULT_SOURCE_WEIGHTS
         self.semantic_config = {**DEFAULT_SEMANTIC_CONFIG, **(semantic_config or {})}
         self.ranking_weights = {**DEFAULT_RANKING_WEIGHTS, **(ranking_weights or {})}
+        self.generate_json = bool(self.semantic_config.get("generate_json", True))
 
         self._lock = threading.Lock()
         self._top_news: list[dict] = []
         self._article_index: dict[str, dict] = {}
+        self._historical_top_ids: set[str] = set()
 
         self._top_news_dir = os.path.join(data_dir, "top_news")
         self._top_news_file = os.path.join(self._top_news_dir, "top_news.json")
+        self._historical_csv_file = os.path.join(self._top_news_dir, "historical_top_news_ids.csv")
         self._candidate_limit = int(self.semantic_config.get("candidate_limit", 4000))
         self._dedup_top_n = bool(self.semantic_config.get("dedup_top_n", True))
 
@@ -62,6 +65,7 @@ class TopNewManager:
         self.ranking_weights = self._impact_scorer.ranking_weights
 
         self._load_top_news()
+        self._load_historical_top_news()
 
     def shutdown(self) -> None:
         """Compatibility no-op for graceful shutdown hooks."""
@@ -82,7 +86,25 @@ class TopNewManager:
             self._top_news = []
             self._article_index = {}
 
+    def _load_historical_top_news(self) -> None:
+        """Load historically seen top news IDs from CSV into memory."""
+        if not os.path.exists(self._historical_csv_file):
+            return
+            
+        try:
+            with open(self._historical_csv_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.strip().split(",")
+                    if parts and parts[0]:
+                        self._historical_top_ids.add(parts[0])
+            self.logger.debug(f"Loaded {len(self._historical_top_ids)} historical top news IDs from CSV")
+        except Exception as exc:
+            self.logger.error(f"Failed to load historical top news CSV: {exc}")
+
     def _save_top_news(self) -> None:
+        if not self.generate_json:
+            return
+
         data = {
             "articles": self._top_news,
             "last_updated": now_ist().isoformat(),
@@ -285,11 +307,35 @@ class TopNewManager:
             self._top_news = self._deduplicate_titles(scored_articles, top_n=100)
         else:
             self._top_news = scored_articles[:100]
+            
+        new_top_news = []
+        for article in self._top_news:
+            uid = str(article.get("unique_id") or self._get_article_id(article)).strip()
+            if uid and uid not in self._historical_top_ids:
+                new_top_news.append(article)
+                
+        return new_top_news
 
-    def update_top_news(self, articles: list[dict]) -> list[dict]:
+    def _append_to_historical_csv(self, newly_crowned: list[dict]) -> None:
+        """Append newly crowned top news IDs to the historical CSV."""
+        if not newly_crowned:
+            return
+            
+        try:
+            with open(self._historical_csv_file, "a", encoding="utf-8") as f:
+                for article in newly_crowned:
+                    uid = str(article.get("unique_id") or self._get_article_id(article)).strip()
+                    ts = article.get("ranked_at", now_ist().isoformat())
+                    f.write(f"{uid},{ts}\n")
+                    self._historical_top_ids.add(uid)
+        except Exception as exc:
+            self.logger.error(f"Failed to append to historical top news CSV: {exc}")
+
+    def update_top_news(self, articles: list[dict]) -> tuple[list[dict], list[dict]]:
         if not articles:
-            return self._top_news
+            return self._top_news, []
 
+        newly_crowned = []
         with self._lock:
             for article in articles:
                 article_id = self._get_article_id(article)
@@ -299,15 +345,19 @@ class TopNewManager:
                 self._article_index[article_id] = merged
 
             self._trim_article_index_locked()
-            self._recompute_top_news_locked()
+            newly_crowned = self._recompute_top_news_locked()
+            self._append_to_historical_csv(newly_crowned)
             self._save_top_news()
 
         if self._top_news:
             self.logger.info(
                 f"Updated top news: {len(self._top_news)} articles, min score={self._top_news[-1].get('score', 0.0):.4f}"
             )
+            
+        if newly_crowned:
+            self.logger.info(f"Added {len(newly_crowned)} new articles to historical top news")
 
-        return self._top_news
+        return self._top_news, newly_crowned
 
     def get_enriched_articles(self, articles: list[dict]) -> list[dict]:
         """Return scored article snapshots from the internal index."""

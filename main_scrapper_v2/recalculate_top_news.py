@@ -265,9 +265,10 @@ def main():
                 logger.info(f"    No keywords matched")
         logger.info("\n===================================\n")
 
-    top_news_mgr.update_top_news(all_articles)
+    top_news, newly_crowned = top_news_mgr.update_top_news(all_articles)
 
-    logger.info(f"Top news updated with {len(top_news_mgr.get_top_news())} articles")
+    logger.info(f"Top news updated with {len(top_news)} articles")
+    logger.info(f"Added {len(newly_crowned)} new articles to historical top news")
 
     # Show stats if requested
     if args.show_stats:

@@ -25,7 +25,9 @@ class MongoStorage:
     """Thread-safe MongoDB writer for scored news items."""
 
     URL_UNIQUE_INDEX_NAME = "uniq_news_source_url"
-    URL_UNIQUE_PARTIAL_FILTER = {"news_url": {"$type": "string", "$ne": ""}}
+    # Some MongoDB-compatible engines reject $ne in partial indexes.
+    # Use a supported equivalent for non-empty strings.
+    URL_UNIQUE_PARTIAL_FILTER = {"news_url": {"$type": "string", "$gt": ""}}
 
     def __init__(
         self,
@@ -33,18 +35,23 @@ class MongoStorage:
         mongo_url: str = "mongodb://localhost:27017",
         database_name: str = "news_scrapper",
         collection_name: str = "news",
+        top_news_enabled: bool = False,
+        top_news_collection_name: str = "top_news_history",
         logger=None,
     ):
         self.enabled = bool(enabled)
         self.mongo_url = mongo_url
         self.database_name = database_name
         self.collection_name = collection_name
+        self.top_news_enabled = bool(top_news_enabled)
+        self.top_news_collection_name = top_news_collection_name
         self.logger = logger or logging.getLogger("scrapper")
 
         self.available = False
         self._lock = threading.Lock()
         self._client = None
         self._collection = None
+        self._top_news_collection = None
 
         if not self.enabled:
             self.logger.info("MongoDB storage disabled")
@@ -58,6 +65,9 @@ class MongoStorage:
             self._client = MongoClient(self.mongo_url, serverSelectionTimeoutMS=5000)
             self._client.admin.command("ping")
             self._collection = self._client[self.database_name][self.collection_name]
+            
+            if self.top_news_enabled:
+                self._top_news_collection = self._client[self.database_name][self.top_news_collection_name]
 
             self._ensure_indexes()
 
@@ -101,6 +111,18 @@ class MongoStorage:
             [("news_date", -1), ("news_time", -1)],
             name="news_date_time_desc",
         )
+        
+        if self._top_news_collection is not None:
+            self._top_news_collection.create_index(
+                [("news_source", 1), ("news_url", 1)],
+                unique=True,
+                name=self.URL_UNIQUE_INDEX_NAME,
+                partialFilterExpression=self.URL_UNIQUE_PARTIAL_FILTER,
+            )
+            self._top_news_collection.create_index(
+                [("top_score", -1)],
+                name="top_score_desc",
+            )
 
     @staticmethod
     def _as_float(value: Any, default: float = 0.0) -> float:
@@ -145,6 +167,7 @@ class MongoStorage:
             "main_category": main_category,
             "categories": categories,
             "top_score": self._as_float(article.get("top_score", article.get("score", 0.0))),
+            "top_news": bool(article.get("top_news", False)),
         }
 
     @staticmethod
@@ -171,10 +194,18 @@ class MongoStorage:
             if not isinstance(item, dict):
                 continue
             doc = self._build_document(source, item)
+            
+            # Extract top_news flag to prevent $set from overwriting an existing True flag
+            # We use $setOnInsert so new documents default to False (or whatever is passed)
+            top_news_val = doc.pop("top_news", False)
+            
             operations.append(
                 UpdateOne(
                     self._identity_filter(doc),
-                    {"$set": doc},
+                    {
+                        "$set": doc,
+                        "$setOnInsert": {"top_news": top_news_val}
+                    },
                     upsert=True,
                 )
             )
@@ -189,3 +220,64 @@ class MongoStorage:
             except PyMongoError as exc:
                 self.logger.error(f"MongoDB write failed: {exc}")
                 return 0
+
+    def mark_as_top_news(self, articles: list[dict]) -> int:
+        """Mark specific articles as having entered top news (historical flag)."""
+        if not self.available or not articles:
+            return 0
+            
+        operations = []
+        for item in articles:
+            if not isinstance(item, dict):
+                continue
+                
+            unique_id = str(item.get("unique_id", "")).strip()
+            # If the article has a unique_id field mapped in MongoDB, match by it.
+            # Otherwise use the identity filter mapping.
+            if unique_id:
+                filter_query = {"unique_id": unique_id}
+            else:
+                doc = self._build_document("", item)
+                filter_query = self._identity_filter(doc)
+                
+            operations.append(
+                UpdateOne(
+                    filter_query,
+                    {"$set": {"top_news": True}},
+                    upsert=False, # We don't upsert here; save_news should have already saved it
+                )
+            )
+            
+        if not operations:
+            return 0
+            
+        with self._lock:
+            try:
+                result = self._collection.bulk_write(operations, ordered=False)
+                modified = int(result.modified_count)
+            except PyMongoError as exc:
+                self.logger.error(f"MongoDB mark_as_top_news failed: {exc}")
+                return 0
+                
+            if self.top_news_enabled and self._top_news_collection is not None:
+                tn_operations = []
+                for item in articles:
+                    if not isinstance(item, dict):
+                        continue
+                    doc = self._build_document("", item)
+                    # Force the flag to True for the dedicated collection
+                    doc["top_news"] = True
+                    tn_operations.append(
+                        UpdateOne(
+                            self._identity_filter(doc),
+                            {"$set": doc},
+                            upsert=True,
+                        )
+                    )
+                if tn_operations:
+                    try:
+                        self._top_news_collection.bulk_write(tn_operations, ordered=False)
+                    except PyMongoError as exc:
+                        self.logger.error(f"MongoDB top news dedicated collection write failed: {exc}")
+                        
+            return modified

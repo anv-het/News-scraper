@@ -1,5 +1,5 @@
 """
-JSON file storage with atomic writes, deduplication, and backup management.
+JSON file storage with atomic writes and deduplication.
 Stores source archives in DATA/<source_name>/<date>.json and mirrors daywise
 aggregates into DATA/DAYWISE/YYYY/MM_MonthName/<date>.json.
 """
@@ -265,72 +265,12 @@ class JsonStorage:
         return saved
 
     def append_backup(self, source: str, news_list: list[dict]):
-        """Append news to the shared root backup.json (all-time collection)."""
-        if not news_list:
-            return
-
-        self._unique_id_allocator.assign_if_missing(news_list)
-
-        normalized = self._normalize_items(source, news_list)
-        seen_titles: set[str] = set()
-        unique_by_title: list[dict] = []
-        for item in normalized:
-            title_key = self._title_key(item)
-            if title_key and title_key in seen_titles:
-                continue
-            unique_by_title.append(item)
-            if title_key:
-                seen_titles.add(title_key)
-
-        backup_path = self._backup_file()
-
-        with self._backup_lock:
-            existing = self._read_json(backup_path)
-            existing_titles = {
-                self._title_key(item)
-                for item in existing
-                if isinstance(item, dict)
-            }
-            incoming = []
-            for item in unique_by_title:
-                title_key = self._title_key(item)
-                if title_key and title_key in existing_titles:
-                    continue
-                incoming.append(item)
-                if title_key:
-                    existing_titles.add(title_key)
-
-            if not incoming:
-                return
-
-            merged = self._merge_articles(existing, incoming, include_source_in_identity=True)
-
-            if merged == existing:
-                return
-
-            self._atomic_write(backup_path, merged)
+        """Backup writing is disabled; retained as a no-op for compatibility."""
+        return
 
     def migrate_existing_backups_to_root(self) -> int:
-        """Backfill the shared backup.json from legacy per-source backup files."""
-        migrated = 0
-        backup_path = self._backup_file()
-        existing = self._read_json(backup_path)
-
-        with self._backup_lock:
-            for source in self._source_dirs():
-                legacy_backup = os.path.join(self._data_dir, source, "backup.json")
-                items = self._normalize_items(source, self._read_json(legacy_backup))
-                if not items:
-                    continue
-                existing = self._merge_articles(existing, items, include_source_in_identity=True)
-
-            if existing:
-                current = self._read_json(backup_path)
-                if existing != current:
-                    self._atomic_write(backup_path, existing)
-                    migrated = len(existing) - len(current)
-
-        return migrated
+        """Backup migration is disabled; retained as a no-op for compatibility."""
+        return 0
 
     def migrate_existing_source_data_to_daywise(self) -> int:
         """Backfill daywise JSON files from existing source daily files."""

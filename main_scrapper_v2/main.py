@@ -68,6 +68,8 @@ def load_config() -> dict:
         "mongo_url": os.getenv("MONGO_URL", "mongodb://localhost:27017"),
         "mongo_database": os.getenv("MONGO_DATABASE", "news_scrapper"),
         "mongo_collection": os.getenv("MONGO_COLLECTION", "news"),
+        "mongo_top_news_enabled": os.getenv("MONGO_TOP_NEWS_ENABLED", "false").lower() == "true",
+        "mongo_top_news_collection": os.getenv("MONGO_TOP_NEWS_COLLECTION", "top_news_history"),
         "proxy_enabled": os.getenv("PROXY_ENABLED", "false").lower() == "true",
         "proxy_file": os.getenv("PROXY_FILE", "proxies.txt"),
         "proxy_bandwidth_limit_mb": int(os.getenv("PROXY_BANDWIDTH_LIMIT_MB", "1024")),
@@ -106,6 +108,7 @@ def load_config() -> dict:
         "rank_weight_event": float(os.getenv("RANK_WEIGHT_EVENT", "0.23")),
         "rank_weight_recency": float(os.getenv("RANK_WEIGHT_RECENCY", "0.15")),
         "rank_weight_source": float(os.getenv("RANK_WEIGHT_SOURCE", "0.08")),
+        "generate_top_news_json": os.getenv("GENERATE_TOP_NEWS_JSON", "true").lower() == "true",
     }
 
     # Load sites.yaml
@@ -258,8 +261,6 @@ class ScraperWorker(threading.Thread):
         self.last_error = ""
         self.last_error_time = 0.0
         self._last_empty_warn_time = 0.0  # throttle empty-data warnings
-        self._backup_buffer: list[dict] = []
-        self._last_backup_write = 0.0
 
     @property
     def status(self) -> str:
@@ -357,26 +358,34 @@ class ScraperWorker(threading.Thread):
                 self.block_count = 0  # reset escalation on success
                 self.last_success_time = time.time()
 
-                # Buffer for backup
-                self._backup_buffer.extend(new_items)
-
                 # Update top news with saved articles
                 scored_items = saved_items
+                new_top_articles = []
                 if self.top_news_mgr and saved_items:
                     try:
-                        self.top_news_mgr.update_top_news(saved_items)
+                        _, new_top_articles = self.top_news_mgr.update_top_news(saved_items)
                         scored_items = self.top_news_mgr.get_enriched_articles(saved_items)
                     except Exception as e:
                         print(f"[{self.scraper.name}] TOP_NEWS ERROR: {type(e).__name__}: {e}", flush=True)
                         self.log.warning(f"Top news update error: {e}")
 
-                if self.mongo_storage and self.mongo_storage.available and scored_items:
-                    try:
-                        mongo_saved = self.mongo_storage.save_news(self.scraper.name, scored_items)
-                        self.log.info(f"Saved {mongo_saved} in MongoDB")
-                    except Exception as e:
-                        print(f"[{self.scraper.name}] MONGO ERROR: {type(e).__name__}: {e}", flush=True)
-                        self.log.warning(f"MongoDB save error: {e}")
+                if self.mongo_storage and self.mongo_storage.available:
+                    if scored_items:
+                        try:
+                            mongo_saved = self.mongo_storage.save_news(self.scraper.name, scored_items)
+                            self.log.info(f"Saved {mongo_saved} in MongoDB")
+                        except Exception as e:
+                            print(f"[{self.scraper.name}] MONGO ERROR: {type(e).__name__}: {e}", flush=True)
+                            self.log.warning(f"MongoDB save error: {e}")
+                            
+                    if new_top_articles:
+                        try:
+                            marked = self.mongo_storage.mark_as_top_news(new_top_articles)
+                            if marked > 0:
+                                self.log.info(f"Marked {marked} new historical top news in MongoDB")
+                        except Exception as e:
+                            print(f"[{self.scraper.name}] MONGO MARK ERROR: {type(e).__name__}: {e}", flush=True)
+                            self.log.warning(f"MongoDB mark error: {e}")
 
 
                 if self.redis:
@@ -398,32 +407,9 @@ class ScraperWorker(threading.Thread):
                 if elapsed > self.config.get("blocked_threshold_minutes", 120) * 60:
                     self._check_blocked()
 
-            # Periodic backup write
-            now = time.monotonic()
-            interval = self.config.get("backup_write_interval", 60)
-            if self._backup_buffer and (now - self._last_backup_write >= interval):
-                try:
-                    self.storage.append_backup(self.scraper.name, self._backup_buffer)
-                except Exception as e:
-                    self.log.error(f"Backup write error: {e}")
-                    self.consecutive_errors += 1
-                    self._check_blocked()
-                    self._backoff_sleep()
-                    continue
-                self._backup_buffer.clear()
-                self._last_backup_write = now
-
             # Sleep with jitter
             delay = random.uniform(self.poll_min, self.poll_max)
             self.stop_event.wait(delay)
-
-        # Flush remaining backup buffer on shutdown
-        if self._backup_buffer:
-            try:
-                self.storage.append_backup(self.scraper.name, self._backup_buffer)
-                self._backup_buffer.clear()
-            except Exception as e:
-                self.log.error(f"Final backup flush error: {e}")
 
         self.log.info("Stopped")
 
@@ -526,19 +512,29 @@ def _run_once(scrapers, storage, root_log, top_news_mgr=None, mongo_storage=None
             saved_items = items if saved > 0 else []
 
             scored_items = saved_items
+            new_top_articles = []
             if top_news_mgr and saved_items:
                 try:
-                    top_news_mgr.update_top_news(saved_items)
+                    _, new_top_articles = top_news_mgr.update_top_news(saved_items)
                     scored_items = top_news_mgr.get_enriched_articles(saved_items)
                 except Exception as e:
                     root_log.warning(f"[{scraper.name}] Top-news update error: {e}")
 
-            if mongo_storage and getattr(mongo_storage, "available", False) and scored_items:
-                try:
-                    mongo_saved = mongo_storage.save_news(scraper.name, scored_items)
-                    root_log.info(f"[{scraper.name}] +{mongo_saved} articles saved to MongoDB")
-                except Exception as e:
-                    root_log.warning(f"[{scraper.name}] MongoDB save error: {e}")
+            if mongo_storage and getattr(mongo_storage, "available", False):
+                if scored_items:
+                    try:
+                        mongo_saved = mongo_storage.save_news(scraper.name, scored_items)
+                        root_log.info(f"[{scraper.name}] +{mongo_saved} articles saved to MongoDB")
+                    except Exception as e:
+                        root_log.warning(f"[{scraper.name}] MongoDB save error: {e}")
+                        
+                if new_top_articles:
+                    try:
+                        marked = mongo_storage.mark_as_top_news(new_top_articles)
+                        if marked > 0:
+                            root_log.info(f"[{scraper.name}] +{marked} historical top news marked in MongoDB")
+                    except Exception as e:
+                        root_log.warning(f"[{scraper.name}] MongoDB mark top news error: {e}")
 
             total += saved
             root_log.info(f"[{scraper.name}] +{saved} articles saved")
@@ -696,17 +692,15 @@ def main():
     # Storage
     storage = JsonStorage(data_dir=config["data_dir"])
     migrated = storage.migrate_existing_source_data_to_daywise()
-    migrated_backup = storage.migrate_existing_backups_to_root()
-    root_log.info(
-        f"Daywise storage mirror synchronized ({migrated} articles updated); "
-        f"shared backup synchronized ({migrated_backup} articles updated)"
-    )
+    root_log.info(f"Daywise storage mirror synchronized ({migrated} articles updated)")
 
     mongo_storage = MongoStorage(
         enabled=config["mongo_enabled"],
         mongo_url=config["mongo_url"],
         database_name=config["mongo_database"],
         collection_name=config["mongo_collection"],
+        top_news_enabled=config["mongo_top_news_enabled"],
+        top_news_collection_name=config["mongo_top_news_collection"],
         logger=logger,
     )
 
@@ -734,6 +728,7 @@ def main():
         "dedup_top_n": config["topnews_dedup_top_n"],
         "heuristic_boost": True,
         "candidate_limit": config["semantic_candidate_limit"],
+        "generate_json": config["generate_top_news_json"],
     }
 
     ranking_weights = {

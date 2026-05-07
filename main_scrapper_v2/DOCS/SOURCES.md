@@ -1,277 +1,197 @@
-# News Scrapper — Existing Sources Deep Dive
+# News Scrapper — Sources Deep Dive (Current)
 
-Detailed documentation for each implemented scraper: how it works,
-what data it fetches, rate limits, and known quirks.
+Updated: 2026-04-22
 
----
+This file now reflects all currently implemented sources in `sites_scrapers/` and their
+current runtime status from `sites.yaml`.
 
-## 1. Groww (`sites_scrapers/groww.py`)
+## Current Source Inventory
 
-### Source
-- **Website**: https://groww.in/market-news/stocks
-- **API**: `https://groww.in/v2/api/feed/public?page=0&publisherId=stocknewssummary&size=200`
+| Source Key | Display Name | Status | Poll Interval (s) | Method | Main Dedup Key |
+|---|---|---|---|---|---|
+| groww | Groww | Enabled | 2-4 | JSON API | `postId` |
+| livemint | LiveMint | Enabled | 2-3 | API + RSS rotation | `news_url` |
+| scanx | ScanX | Enabled | 3-5 | HTML + Angular state + ETag | `article_id` |
+| tradingview | TradingView | Enabled | 2-4 | Dual JSON API | `news_id` |
+| moneycontrol | MoneyControl | Enabled | 5-10 | HTML scrape | `article_id` from URL |
+| cnbctv18 | CNBC TV18 | Enabled | 5-10 | JSON API | `story_id` |
+| reuters | Reuters | Enabled | 8-15 | Arc XML sitemap | `news_url` |
+| cnbc | CNBC | Enabled | 8-15 | RSS primary, HTML fallback | `news_url` |
+| bbc | BBC News | Enabled | 8-15 | RSS rotation | `news_url` |
+| economictimes | Economic Times | Enabled | 3-6 | HTML primary, RSS fallback | `msid` |
+| zeebusiness | Zee Business | Enabled | 8-15 | Sitemap primary, `__NEXT_DATA__` fallback | `news_url` |
+| etnow | ET Now | Enabled | 5-25 | API primary, sitemap fallback | no explicit `_is_seen` mark in scraper |
+| businessstandard | Business Standard | Enabled | 5-10 | `__NEXT_DATA__` primary, HTML fallback | `article_id` |
+| ndtv | NDTV | Enabled | 3-6 | RSS primary, HTML fallback | `news_url` |
+| timesofindia | Times of India | Enabled | 5-10 | HTML pattern scrape | `article_id` |
+| zerodha | Zerodha Pulse | Disabled | 3-5 | HTML scrape | `news_url` |
+| stockedge | StockEdge | Disabled | 1-2 | JSON API (3 pages) | `ID` |
+| angelone | Angel One | Disabled | 5-8 | API + sitemap | `slug` |
+| rediff | Rediff | Disabled | 5-10 | HTML + RSS merge | `news_url` |
 
-### How It Works
-1. Polls the Groww public feed API which returns up to 200 stock news items
-2. Each item has a unique `postId` used for deduplication
-3. Dates arrive in UTC format `2026-03-08T10:57:03` → converted to IST
-4. News URLs extracted from `data.cta[0].ctaUrl` field
+## Enabled Sources (Production)
 
-### Data Quality
-- **Caption**: Always available (article title)
-- **Summary**: Available (article body)
-- **URL**: Sometimes empty (not all items have CTAs)
-- **Dates**: UTC, consistent format
+### 1. Groww (`sites_scrapers/groww.py`)
+- Website: https://groww.in/market-news/stocks
+- API: `https://groww.in/v2/api/feed/public?page=0&publisherId=stocknewssummary&size=20`
+- Method: JSON API polling with cache-bust (`&_ts=`)
+- Dedup: `postId`
+- Date parsing: `parse_groww_date` (UTC to IST)
+- Notes: session refresh every 24h; URL from `data.cta[0].ctaUrl`; image from `images`/`imageUrl`
 
-### Rate Limits
-- No known rate limiting on the public API
-- Poll interval: 5-8 seconds (safe)
+### 2. LiveMint (`sites_scrapers/livemint.py`)
+- Website: https://www.livemint.com/latest-news
+- API: `https://www.livemint.com/api/cms/story/latest?limit=50`
+- RSS feeds: news, companies, markets, industry, politics, opinion, money, budget, elections
+- Method: fast API + rotated RSS feed coverage
+- Dedup: article URL
+- Date parsing: `parse_iso_datetime` (API), `parse_rss_date` (RSS)
+- Notes: RSS sweep interval controlled by `RSS_INTERVAL = 18`
 
-### Headers Required
-```
-x-platform: web
-x-device-type: desktop
-Referer: https://groww.in/market-news/stocks
-```
+### 3. ScanX (`sites_scrapers/scanx.py`)
+- Website: https://scanx.trade/stock-market-news
+- Method: HTML fetch, parse `<script id="ng-state">`, decode custom entities, extract `sections_data`
+- Dedup: article `id`
+- Date parsing: `parse_iso_datetime`
+- Notes: uses ETag (`If-None-Match`) and skips processing on HTTP 304
 
----
+### 4. TradingView (`sites_scrapers/tradingview.py`)
+- Website: https://in.tradingview.com/news-flow
+- APIs:
+   - `...news-flow/v2/news?filter=lang%3Aen_IN&filter=market_country%3AIN&client=screener&streaming=true&user_prostatus=non_pro`
+   - `...news-flow/v2/news?filter=lang%3Aen_IN&client=screener&streaming=true&user_prostatus=non_pro`
+- Method: dual endpoint fetch every cycle
+- Dedup: `id`
+- Date parsing: `parse_timestamp`
+- Notes: URL from `link` or `storyPath`
 
-## 2. LiveMint (`sites_scrapers/livemint.py`)
+### 5. MoneyControl (`sites_scrapers/moneycontrol.py`)
+- Website: https://www.moneycontrol.com/news/business/markets/
+- Method: HTML scraping of `<ul id="cagetory">` list
+- Dedup: numeric ID extracted from URL tail
+- Date handling: no per-item timestamp on listing, uses `now_ist()`
+- Notes: session refresh every 24h
 
-### Source
-- **Website**: https://www.livemint.com/latest-news
-- **API**: `https://www.livemint.com/api/cms/story/latest?limit=10`
-- **RSS**: 9 category feeds
+### 6. CNBC TV18 (`sites_scrapers/cnbctv18.py`)
+- Website: https://www.cnbctv18.com/
+- API: `https://api-en.cnbctv18.com/nodeapi/v1/cne/get-article-list?count=50&offset=0...`
+- Method: JSON API with flexible response-key handling (`data`/`articles`/`result`/`items`/`rows`)
+- Dedup: `story_id`
+- Date parsing: `parse_iso_datetime` (`created_at`/`updated_at`)
 
-### How It Works — Dual Strategy
-1. **Fast path (every poll cycle)**: JSON API returns the 10 latest articles
-2. **Slow path (rotated)**: 9 RSS feeds cycled one per poll, full sweep ~45 seconds
-   - `/rss/news`, `/rss/companies`, `/rss/markets`, `/rss/industry`
-   - `/rss/politics`, `/rss/opinion`, `/rss/money`, `/rss/budget`, `/rss/elections`
+### 7. Reuters (`sites_scrapers/reuters.py`)
+- Website: https://www.reuters.com/
+- Sitemap: `https://www.reuters.com/arc/outboundfeeds/news-sitemap/?outputType=xml`
+- Method: Arc outbound sitemap, rotates pages (`from=0/100/200`)
+- Dedup: article URL
+- Date parsing: `parse_iso_datetime`
+- Notes: uses sitemap namespaces and image extraction from `image:image`
 
-### Why Dual?
-- API is fastest for breaking news (10 most recent)
-- RSS covers all categories including older articles the API may skip
-- Combined: near-complete coverage of LiveMint content
+### 8. CNBC (`sites_scrapers/cnbc.py`)
+- Website: https://www.cnbc.com/world-markets/
+- RSS: `https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114`
+- Method: RSS primary, `window.__s_data` fallback
+- Dedup: article URL
+- Date parsing: `parse_rss_date` (RSS), `parse_iso_datetime` (fallback assets)
+- Notes: skips `/video/` and `/select/`
 
-### Data Quality
-- **Caption**: Always available
-- **Summary**: Available from both API and RSS
-- **URL**: Full article URLs
-- **Dates**: ISO 8601 (API) and RFC 2822 (RSS)
+### 9. BBC News (`sites_scrapers/bbc.py`)
+- Website: https://www.bbc.com/news
+- RSS feeds:
+   - https://feeds.bbci.co.uk/news/rss.xml
+   - https://feeds.bbci.co.uk/news/world/rss.xml
+   - https://feeds.bbci.co.uk/news/business/rss.xml
+- Method: rotates one feed per cycle
+- Dedup: article URL
+- Date parsing: `parse_rss_date`
+- Notes: image extraction from `media:thumbnail` and `media:content`
 
-### Rate Limits
-- Moderate — API is lightweight JSON, RSS is standard
-- Poll interval: 3-5 seconds for API, ~5s per RSS feed
+### 10. Economic Times (`sites_scrapers/economictimes.py`)
+- Website: https://economictimes.indiatimes.com/markets/stocks/news
+- HTML pages:
+   - `/markets/stocks/news`
+   - `/markets/stocks/earnings`
+   - `/markets`
+- RSS fallback feeds (5): top stories, markets, stocks, economy, industry
+- Method: HTML first, parallel RSS fallback
+- Dedup: `msid` extracted from URL pattern
+- Date parsing: `parse_iso_datetime` (HTML time tags), `parse_rss_date` (RSS)
 
-### Special Handling
-- HTML entities in summaries stripped via `clean_html()`
-- RSS date parsing handles `+0530` timezone offsets
+### 11. Zee Business (`sites_scrapers/zeebusiness.py`)
+- Website: https://www.zeebiz.com/
+- Sitemap: `https://www.zeebiz.com/news-sitemap.xml`
+- Method: sitemap primary, homepage `__NEXT_DATA__` fallback
+- Dedup: article URL
+- Date parsing: `parse_iso_datetime` or timestamp parsing from `created`
+- Notes: includes malformed-XML fixer and regex extraction fallback
 
----
+### 12. ET Now (`sites_scrapers/etnow.py`)
+- Website: https://www.etnownews.com/
+- API: `https://api.etnownews.com/api/latest?seopath=latest-news&pageno=1&itemcount=41&origin=desktop&channel_id=382`
+- Sitemap fallback: `https://www.etnownews.com/feeds/google-news-sitemap-etnow.xml`
+- Method: API primary, sitemap fallback
+- Dedup note: scraper currently does not call `_is_seen`/`_mark_seen_bulk` in this file
+- Date parsing: `parse_timestamp` and `parse_iso_datetime`
 
-## 3. ScanX (`sites_scrapers/scanx.py`)
+### 13. Business Standard (`sites_scrapers/businessstandard.py`)
+- Website: https://www.business-standard.com/latest-news
+- Method: parse Next.js `__NEXT_DATA__` (`props.pageProps.newsData`) with HTML fallback
+- Dedup: `article_id` (fallback uses URL)
+- Date parsing: `parse_timestamp` on `published_date`
 
-### Source
-- **Website**: https://scanx.trade/stock-market-news
-- **Method**: Angular SSR page with embedded JSON state
+### 14. NDTV (`sites_scrapers/ndtv.py`)
+- Website: https://www.ndtv.com/latest
+- RSS: `https://feeds.feedburner.com/ndtvnews-latest`
+- Method: FeedBurner RSS primary, HTML fallback
+- Dedup: article URL
+- Date parsing: `parse_rss_date`; HTML fallback parses NDTV date strings
+- Notes: skips video/photos/topic URLs in fallback path
 
-### How It Works
-1. Fetches the full HTML page
-2. Extracts `<script id="ng-state">` JSON blob (Angular transfer state)
-3. Decodes Angular HTML entities: `&q;` → `"`, `&l;` → `<`, etc.
-4. Parses `sections_data[].articles[]` from the decoded JSON
-5. Uses **ETag caching**: sends `If-None-Match` header → 304 means no change
+### 15. Times of India (`sites_scrapers/timesofindia.py`)
+- Website: https://timesofindia.indiatimes.com
+- Method: homepage HTML scan for `/articleshow/{id}.cms` links
+- Dedup: article ID extracted from URL
+- Date handling: uses scrape time (`now_ist`) because homepage does not expose per-item times
+- Notes: image from `msid` attribute or constructed TOI CDN URL
 
-### Why ETag?
-- The page ISR (Incremental Static Regeneration) cache revalidates ~every 60s
-- Most polls return 304 (1-2 KB response) instead of full page (~200 KB)
-- Saves >99% bandwidth on quiet periods
+## Disabled Sources (Implemented, Currently Off)
 
-### Data Quality
-- **Caption**: `articletitle` field
-- **Summary**: Available
-- **URL**: Constructed from `subcategory` + `slug` + `id`
-- **Dates**: ISO 8601 with Z suffix
+### Zerodha Pulse (`sites_scrapers/zerodha.py`)
+- Status: disabled in `sites.yaml`
+- Method: HTML parsing of `li.box.item` plus `ul.similar > li`
+- Dedup: article URL
+- Date parsing: `parse_zerodha_date`
 
-### URL Construction
-Maps subcategories to URL slugs:
-```
-corporate_action → corporate-actions
-normal_news → stocks
-order&deals → orders-deals
-results → earnings
-```
+### StockEdge (`sites_scrapers/stockedge.py`)
+- Status: disabled in `sites.yaml`
+- Method: JSON API paging across pages `[1, 2, 3]`
+- API: `https://api.stockedge.com/Api/DailyDashboardApi/GetLatestNewsItems?page={page}&pageSize=20&sectionType=null&lang=en`
+- Dedup: numeric `ID`
+- Date parsing: `parse_stockedge_datetime`
+- Notes: adds random delay between page fetches
 
-### Rate Limits
-- Standard web scraping limits
-- Poll interval: 8-12 seconds (ETag makes most requests cheap)
+### Angel One (`sites_scrapers/angelone.py`)
+- Status: disabled in `sites.yaml`
+- Method: blog API primary + sitemap secondary
+- APIs:
+   - `https://kp-hl-httpapi-prod.angelone.in/public/v2/blog?offset=0&limit=20`
+   - `https://www.angelone.in/news-sitemap.xml`
+- Dedup: slug
+- Date parsing: `parse_iso_datetime`
+- Notes: category whitelist and hourly session refresh
 
----
+### Rediff (`sites_scrapers/rediff.py`)
+- Status: disabled in `sites.yaml`
+- Method: HTML article/image mapping merged with RSS metadata
+- Endpoints:
+   - `https://www.rediff.com/news`
+   - `https://www.rediff.com/rss/newsrss.xml`
+- Dedup: article URL
+- Date parsing: `parse_rss_date` or fallback `now_ist`
 
-## 4. TradingView (`sites_scrapers/tradingview.py`)
+## Notes
 
-### Source
-- **Website**: https://in.tradingview.com/news-flow
-- **API 1**: India-specific (`market_country=IN` + `lang=en_IN`)
-- **API 2**: General English-India (`lang=en_IN` only)
-
-### How It Works
-1. Fetches **both** API endpoints each poll cycle with cache-bust timestamps
-2. Uses `streaming=true` and `client=screener` for more real-time data
-3. API 1 returns India market-specific news
-4. API 2 returns broader English-India news (overlaps slightly)
-5. Each article has a unique `id` field for deduplication
-6. Dates arrive as Unix timestamps → converted to IST
-
-### Why Two APIs?
-- ~85% unique content between them
-- India-specific catches market-focused stories
-- General catches broader financial/economic news
-- `streaming=true` + `client=screener` returns fresher data than `client=web`
-
-### Data Quality
-- **Caption**: Always available (article title)
-- **Summary**: Usually empty (API doesn't provide descriptions)
-- **URL**: `link` field or constructed from `storyPath`
-- **Dates**: Unix timestamps, precise
-
-### Rate Limits
-- TradingView is generally lenient for their news API
-- Poll interval: 2-4 seconds
-
-### Headers Required
-```
-Referer: https://in.tradingview.com/
-Origin: https://in.tradingview.com
-```
-
----
-
-## 5. Zerodha Pulse (`sites_scrapers/zerodha.py`)
-
-### Source
-- **Website**: https://pulse.zerodha.com/
-- **Method**: HTML scraping with BeautifulSoup
-
-### How It Works
-1. Fetches the main page HTML
-2. Parses `li.box.item` elements for main articles
-3. Also extracts `ul.similar > li` for related/similar articles
-4. Date extracted from `span.date[title]` attribute (e.g., `08:38 AM, 07 Mar 2026`)
-5. Deduplicates by article URL (href)
-
-### What It Extracts
-- **Main articles**: Title (`h2.title > a`), description (`div.desc`), date, URL
-- **Similar articles**: Title (`a.title2`), date only (no description)
-
-### Data Quality
-- **Caption**: Always available
-- **Summary**: Available for main articles only, empty for similar
-- **URL**: External article URLs (links to original source)
-- **Dates**: Zerodha's own format from title attribute
-
-### Rate Limits
-- Standard web scraping — not aggressive
-- Poll interval: 8-12 seconds
-- Uses proper browser-like headers to avoid blocks
-
-### Headers Required
-```
-sec-ch-ua-mobile: ?0
-sec-ch-ua-platform: "Windows"
-sec-fetch-dest: document
-sec-fetch-mode: navigate
-upgrade-insecure-requests: 1
-```
-
----
-
-## 6. StockEdge (`sites_scrapers/stockedge.py`)
-
-### Source
-- **Website**: https://web.stockedge.com/daily-updates?section=news
-- **API**: `https://api.stockedge.com/Api/DailyDashboardApi/GetLatestNewsItems?page=1&pageSize=20&sectionType=null&lang=en`
-
-### How It Works
-1. Polls the StockEdge Daily Dashboard API (JSON list)
-2. Each item has a unique numeric `ID` field for deduplication
-3. Caption from `Description`, summary from `Details` (HTML stripped)
-4. Dates from `Date` + `Time` fields (e.g. `2026-03-09T00:00:00` + `03:45 pm`)
-
-### Data Quality
-- **Caption**: Always available (`Description` field)
-- **Summary**: Available (`Details`, HTML tags stripped)
-- **URL**: N/A — StockEdge doesn't provide article URLs
-- **Dates**: IST, combined from Date + Time strings
-
-### Rate Limits
-- API may silently return empty results when blocked (no 403/429)
-- Poll interval: 5-10 seconds
-
----
-
-## 7. MoneyControl (`sites_scrapers/moneycontrol.py`)
-
-### Source
-- **Website**: https://www.moneycontrol.com/news/business/markets/
-- **Method**: HTML scraping with BeautifulSoup
-
-### How It Works
-1. Fetches the markets news listing page
-2. Parses `<ul id="cagetory">` (their actual HTML typo) → `<li class="clearfix">`
-3. Extracts title from `<a title="">`, URL from `<a href="">`
-4. Summary from first non-empty `<p>` in each item
-5. Article ID extracted from URL trailing number (e.g. `-13855013.html` → `13855013`)
-
-### Data Quality
-- **Caption**: Always available
-- **Summary**: Available (first paragraph)
-- **URL**: Full article URLs
-- **Dates**: Not available in listing — uses scrape time
-
-### Rate Limits
-- Standard HTML scraping
-- Poll interval: 5-10 seconds
-
-### Notes
-- RSS feeds (`/rss/latestnews.xml`) are stale since August 2024
-- No JSON API found — HTML scraping is the only reliable method
-
----
-
-## 8. Angel One (`sites_scrapers/angelone.py`)
-
-### Source
-- **Website**: https://www.angelone.in/news/market-updates
-- **Method**: HTML scraping with BeautifulSoup (Next.js SSR page)
-
-### How It Works
-1. Fetches the market updates page (server-side rendered)
-2. Parses `<div class="kgEtrD">` cards
-3. Title from `<h2 class="entry-title"><a>`, URL from the same `<a href>`
-4. Date from `<span>` text (e.g. "9 March 2026")
-5. Deduplicates by URL slug (last path segment)
-
-### Data Quality
-- **Caption**: Always available
-- **Summary**: Not available in listing page
-- **URL**: Full article URLs
-- **Dates**: Day-level precision only ("9 March 2026")
-
-### Rate Limits
-- Cloudflare-protected; occasional bot challenges cause intermittent blocks
-- Poll interval: 5-10 seconds
-
----
-
-## Source Comparison
-
-| Feature | Groww | LiveMint | ScanX | TradingView | Zerodha | StockEdge | MoneyControl | Angel One |
-|---------|-------|----------|-------|-------------|---------|-----------|--------------|-----------|
-| Method | API | API+RSS | HTML+ETag | API×2 | HTML | API | HTML | HTML |
-| Volume/day | ~200 | ~300+ | ~50 | ~400+ | ~150 | ~20 | ~25 | ~10 |
-| Has summary | ✅ | ✅ | ✅ | ❌ | Partial | ✅ | ✅ | ❌ |
-| Latency | Low | Low | Medium | Low | Medium | Low | Medium | Medium |
-| Bandwidth | Low | Medium | Low (ETag) | Low | High | Low | Medium | Medium |
-| Reliability | High | High | High | High | Medium | Low | High | Low |
+- Active sources in config: 15
+- Disabled sources in config: 4
+- Total implemented source scrapers: 19 (`sites_scrapers/base.py` is abstract and not a source)
+- This document intentionally avoids speculative throughput metrics and only records behavior visible in code/config.
